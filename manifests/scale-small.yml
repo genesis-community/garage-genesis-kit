@@ -1,0 +1,4 @@
+---
+params:
+  garage_vm_type:   small
+  garage_disk_type: small

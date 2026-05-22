@@ -1,0 +1,6 @@
+---
+# STACKIT-specific configurations for garage.
+# Currently no STACKIT-specific overrides — placeholder for future use.
+instance_groups:
+- name: garage
+  vm_extensions: []

@@ -1,0 +1,5 @@
+---
+update:
+  serial:        true
+  max_in_flight: 1
+  canaries:      1

@@ -1,0 +1,15 @@
+---
+meta:
+  default:
+    azs: [z1, z2, z3]
+
+exodus:
+  cluster:      true
+  cluster_size: (( grab params.instances || 3 ))
+
+instance_groups:
+- name: garage
+  instances: (( grab params.instances || 3 ))
+  networks:
+  - name:       (( grab params.garage_network || "garage" ))
+    static_ips: (( static_ips 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ))

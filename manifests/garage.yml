@@ -1,0 +1,96 @@
+---
+meta:
+  default:
+    azs: [z1, z2, z3]
+  domain: (( grab params.garage_domain || "garage.bosh" ))
+
+exodus:
+  ips:        (( grab instance_groups.garage.networks[0].static_ips ))
+  domain:     (( grab meta.domain ))
+  s3_api_url: (( concat "http://" instance_groups.garage.networks[0].static_ips[0] ":3900" ))
+  ca:         (( vault meta.vault "/certs/ca:certificate" ))
+  cluster:    false
+
+instance_groups:
+- name: garage
+  jobs:
+  - name: garage
+    release: garage
+    provides:
+      garage-rpc:
+        as: garage-rpc
+    consumes:
+      garage-rpc:
+        from: garage-rpc
+    properties:
+      garage:
+        rpc_port:           (( grab params.garage_rpc_port           || 3901 ))
+        s3_port:            (( grab params.garage_s3_port            || 3900 ))
+        admin_port:         (( grab params.garage_admin_port         || 3903 ))
+        s3_region:          (( grab params.garage_s3_region          || "garage" ))
+        s3_root_domain:     (( grab params.garage_s3_root_domain     || "" ))
+        replication_factor: (( grab params.garage_replication_factor || 1 ))
+        db_engine:          (( grab params.garage_db_engine          || "lmdb" ))
+        block_size:         (( grab params.garage_block_size         || 1048576 ))
+        compression_level:  (( grab params.garage_compression_level  || 1 ))
+        metadata_fsync:     (( grab params.garage_metadata_fsync     || false ))
+        consistency_mode:   (( grab params.garage_consistency_mode   || "consistent" ))
+        log_level:          (( grab params.log_level                 || "info" ))
+        metadata_dir:       (( grab params.garage_metadata_dir       || "/var/vcap/store/garage/meta" ))
+        data_dir:           (( grab params.garage_data_dir           || "/var/vcap/store/garage/data" ))
+        rpc_secret:         (( vault meta.vault "/credentials/rpc_secret" ))
+        admin_token:        (( vault meta.vault "/credentials/admin_token" ))
+        layout:
+          manual:   (( grab params.garage_layout_manual   || false ))
+          capacity: (( grab params.garage_layout_capacity || "1T" ))
+        bpm:
+          open_files: (( grab params.garage_open_files || 65536 ))
+
+  - name: bpm
+    release: bpm
+
+  instances: (( grab params.instances || 1 ))
+  azs:       (( grab params.availability_zones || meta.default.azs ))
+
+  persistent_disk_type: (( grab params.garage_disk_type || "default" ))
+  vm_type:              (( grab params.garage_vm_type   || "default" ))
+
+  stemcell: default
+  networks:
+  - name:       (( grab params.garage_network || "garage" ))
+    static_ips: (( static_ips 0 ))
+
+- name: smoke-tests
+  lifecycle: errand
+  instances: 1
+  azs: (( grab params.availability_zones || meta.default.azs ))
+  vm_type: (( grab params.errand_vm_type || params.garage_vm_type || "default" ))
+  stemcell: default
+  networks:
+  - name: (( grab params.garage_network || "garage" ))
+  jobs:
+  - name: smoke-tests
+    release: garage
+    consumes:
+      garage-rpc:
+        from: garage-rpc
+    properties:
+      garage:
+        access_key: (( vault meta.vault "/credentials/smoke_access_key" ))
+        secret_key: (( vault meta.vault "/credentials/smoke_secret_key" ))
+        s3_region:  (( grab params.garage_s3_region || "garage" ))
+        s3_port:    (( grab params.garage_s3_port   || 3900 ))
+      smoke_tests:
+        timeout_secs: (( grab params.smoke_timeout_secs || 30 ))
+
+update:
+  serial:            true
+  canaries:          1
+  canary_watch_time: 30000-600000
+  max_in_flight:     1
+  update_watch_time: 30000-600000
+
+stemcells:
+  - alias:   default
+    os:      (( grab params.stemcell_os      || "ubuntu-noble" ))
+    version: (( grab params.stemcell_version || "latest" ))

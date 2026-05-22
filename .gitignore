@@ -1,0 +1,4 @@
+*.swp
+.DS_Store
+manifests/network.dynamic.yml
+spec/results/

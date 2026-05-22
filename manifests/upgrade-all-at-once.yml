@@ -1,0 +1,5 @@
+---
+update:
+  serial:        false
+  max_in_flight: "100%"
+  canaries:      0

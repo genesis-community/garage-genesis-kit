@@ -1,0 +1,5 @@
+releases:
+- name:    routing
+  version: "0.343.0"
+  sha1:    sha256:1409f3a0e56d89683f50c2d6c0fcb38d1a297c3710b3c067fb75182e7a7df356
+  url:     (( concat "https://bosh.io/d/github.com/cloudfoundry/routing-release?v=" releases.routing.version ))

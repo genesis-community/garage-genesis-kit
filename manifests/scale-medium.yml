@@ -1,0 +1,4 @@
+---
+params:
+  garage_vm_type:   medium
+  garage_disk_type: medium
