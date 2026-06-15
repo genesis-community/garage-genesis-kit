@@ -6,5 +6,5 @@ meta:
 
 params:
   garage_network:   (( concat meta.ocfp.env.cloud "net-garage" ))
-  garage_vm_type:   (( concat meta.ocfp.env.cloud "small" ))
-  garage_disk_type: (( concat meta.ocfp.env.cloud "garage" ))
+  garage_vm_type:   (( concat meta.ocfp.env.cloud "vm-garage" ))
+  garage_disk_type: (( concat meta.ocfp.env.cloud "disk-garage" ))

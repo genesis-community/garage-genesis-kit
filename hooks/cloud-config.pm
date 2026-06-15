@@ -31,9 +31,12 @@ sub perform {
 			$self->network_definition($network_name, strategy => 'ocfp',
 				dynamic_subnets => {
 					allocation => {
-						# 16 statics covers largest supported cluster scale
-						size    => 16,
-						statics => 16,
+						# Static IPs come from the ocfp blueprint reserved-ips
+						# (garage_ip per subnet/instance plus garage_ip_smoke for
+						# the errand), not a pre-sized pool, so the network claims
+						# exactly what it uses.
+						size    => 0,
+						statics => 0,
 					},
 					cloud_properties_for_iaas => {
 						aws => {
@@ -46,6 +49,9 @@ sub perform {
 						stackit => {
 							'net_id'          => $self->network_reference('id'),
 							'security_groups' => $self->network_reference('sgs', 'get_sgs_by_names', 'ocfp', 'default'),
+						},
+						pve => {
+							'bridge' => scalar($self->env->lookup('bosh-configs.cpi.pve_network_bridge', 'lvnet001')),
 						},
 					},
 				}
@@ -86,6 +92,12 @@ sub perform {
 					gcp => {
 						'machine_type' => 'n2-standard-2',
 					},
+					pve => {
+						'cpu'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_cpu',  2)),
+						'ram'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_ram',  4096)),
+						'disk'           => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_disk', 32768)),
+						'network_bridge' => scalar($self->env->lookup('bosh-configs.cpi.pve_network_bridge', 'lvnet001')),
+					},
 				},
 			),
 			$self->vm_type_definition('medium',
@@ -121,6 +133,12 @@ sub perform {
 					},
 					gcp => {
 						'machine_type' => 'n2-standard-4',
+					},
+					pve => {
+						'cpu'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_cpu',  4)),
+						'ram'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_ram',  8192)),
+						'disk'           => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_disk', 65536)),
+						'network_bridge' => scalar($self->env->lookup('bosh-configs.cpi.pve_network_bridge', 'lvnet001')),
 					},
 				},
 			),
@@ -158,6 +176,57 @@ sub perform {
 					gcp => {
 						'machine_type' => 'n2-standard-8',
 					},
+					pve => {
+						'cpu'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_cpu',  8)),
+						'ram'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_ram',  16384)),
+						'disk'           => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_disk', 131072)),
+						'network_bridge' => scalar($self->env->lookup('bosh-configs.cpi.pve_network_bridge', 'lvnet001')),
+					},
+				},
+			),
+			# Service-named vm_type — referenced by the ocfp manifest
+			# (garage_vm_type: <cloud>vm-garage). Medium-class sizing; Garage
+			# runs metadata + S3 data serving on this single instance.
+			$self->vm_type_definition('garage',
+				cloud_properties_for_iaas => {
+					aws => {
+						'instance_type'  => 't3.medium',
+						'ephemeral_disk' => {
+							'encrypted' => $self->TRUE,
+							'size'      => megabytes(16384),
+							'type'      => 'gp3',
+						},
+						'metadata_options' => {
+							'http_tokens' => 'required',
+						},
+					},
+					openstack => {
+						'instance_type'    => 'm1.2',
+						'boot_from_volume' => $self->TRUE,
+						'root_disk'        => { 'size' => 32 },
+					},
+					stackit => {
+						'instance_type'    => 'm1a.2d',
+						'boot_from_volume' => $self->TRUE,
+						'root_disk'        => { 'size' => 32 },
+					},
+					vsphere => {
+						'cpu'  => 4,
+						'ram'  => 8192,
+						'disk' => 32768,
+					},
+					azure => {
+						'instance_type' => 'Standard_D4s_v5',
+					},
+					gcp => {
+						'machine_type' => 'n2-standard-4',
+					},
+					pve => {
+						'cpu'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_cpu',  4)),
+						'ram'            => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_ram',  8192)),
+						'disk'           => scalar($self->env->lookup('bosh-configs.cpi.pve_garage_disk', 65536)),
+						'network_bridge' => scalar($self->env->lookup('bosh-configs.cpi.pve_network_bridge', 'lvnet001')),
+					},
 				},
 			),
 		],
@@ -177,6 +246,10 @@ sub perform {
 					stackit => {
 						'type' => 'storage_premium_perf2',
 					},
+					pve => {
+						'storage'     => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_storage', 'zfs-1')),
+						'disk_format' => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_format', 'raw')),
+					},
 				},
 			),
 			$self->disk_type_definition('medium',
@@ -194,6 +267,10 @@ sub perform {
 					stackit => {
 						'type' => 'storage_premium_perf6',
 					},
+					pve => {
+						'storage'     => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_storage', 'zfs-1')),
+						'disk_format' => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_format', 'raw')),
+					},
 				},
 			),
 			$self->disk_type_definition('large',
@@ -210,6 +287,35 @@ sub perform {
 					},
 					stackit => {
 						'type' => 'storage_premium_perf6',
+					},
+					pve => {
+						'storage'     => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_storage', 'zfs-1')),
+						'disk_format' => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_format', 'raw')),
+					},
+				},
+			),
+		# Service-named disk_type — required by the ocfp manifest
+		# (garage_disk_type: <cloud>garage). Based on medium sizing (50 GB);
+		# per-IaaS properties match the medium disk_type above. Garage stores
+		# metadata + data blocks here, mounted XFS via env.persistent_disk_fs.
+		$self->disk_type_definition('garage',
+				common => {
+					disk_size => gigabytes(50),
+				},
+				cloud_properties_for_iaas => {
+					aws => {
+						'encrypted' => $self->TRUE,
+						'type'      => 'gp3',
+					},
+					openstack => {
+						'type' => 'storage_premium_perf6',
+					},
+					stackit => {
+						'type' => 'storage_premium_perf6',
+					},
+					pve => {
+						'storage'     => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_storage', 'zfs-1')),
+						'disk_format' => scalar($self->env->lookup('bosh-configs.cpi.pve_disk_format', 'raw')),
 					},
 				},
 			),

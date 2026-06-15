@@ -36,8 +36,8 @@ sub perform {
   my $env_name   = $env->name;
   my $vault_path = $env->vault_path_prefix;
 
-  my $rpc_secret_path  = "$vault_path/credentials/rpc_secret";
-  my $admin_token_path = "$vault_path/credentials/admin_token";
+  my $rpc_secret_path  = "$vault_path/credentials:rpc_secret";
+  my $admin_token_path = "$vault_path/credentials:admin_token";
 
   info("");
   info("#Y{WARNING}: This will rotate Garage rpc_secret and admin_token.");

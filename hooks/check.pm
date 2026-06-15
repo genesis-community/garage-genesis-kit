@@ -80,7 +80,14 @@ sub perform {
 			warning("Could not query BOSH director for stemcells: %s", $@);
 			$self->check_result(1, "skipped (could not contact director)");
 		} else {
-			my ($found) = grep { $_->{os} eq $stemcell_os } @stemcells;
+			# bosh->stemcells() may return hashrefs (with an 'os' key) or
+			# plain "os@version" strings depending on Genesis version; match
+			# either form.
+			my ($found) = grep {
+				ref($_) eq 'HASH'
+					? (($_->{os} // '') eq $stemcell_os)
+					: (defined($_) && $_ =~ /\Q$stemcell_os\E/);
+			} @stemcells;
 			if ($found) {
 				$self->check_result(1);
 			} else {

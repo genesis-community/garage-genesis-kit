@@ -49,10 +49,10 @@ sub perform {
   my ($admin_token, $at_rc) = run(
     { stderr => 0 },
     'safe', '-T', $env_name,
-    'get', "$vault_path/credentials/admin_token"
+    'get', "$vault_path/credentials:admin_token"
   );
   bail(
-    "Could not read admin_token from Vault path %s/credentials/admin_token.\n".
+    "Could not read admin_token from Vault path %s/credentials:admin_token.\n".
     "Ensure you are authenticated: safe -T %s auth",
     $vault_path, $env_name
   ) unless $at_rc == 0 && $admin_token;

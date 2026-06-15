@@ -86,14 +86,17 @@ sub _probe_node {
   info("  Probing health of #C{$target}...");
 
   # bosh ssh + curl admin health endpoint on loopback port 3903; non-zero is
-  # non-fatal — cluster may still be converging or layout may not yet be applied
-  my ($out, $rc) = run(
-    { stderr => 0 },
-    'bosh', '-e', $self->env->bosh->alias,
-    '-d', $deployment,
+  # non-fatal — cluster may still be converging or layout may not yet be applied.
+  #
+  # Route through $self->env->bosh->execute rather than a bare `bosh -e <alias>`:
+  # execute() sets BOSH_ENVIRONMENT to the director URL (plus CA/client creds),
+  # so it connects straight to the director IP. A bare alias is resolved as a
+  # hostname, and when a public DNS record shadows the alias the probe hangs
+  # indefinitely on an i/o timeout instead of reaching the director.
+  my ($out, $rc) = $self->env->bosh->execute(
+    { stderr => 0, deployment => $deployment },
     'ssh', $target,
     '--command', 'curl -sk --max-time 5 http://127.0.0.1:3903/health',
-    '--results', '--json'
   );
 
   if ($rc == 0) {

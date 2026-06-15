@@ -1,6 +1,13 @@
----
+# The garage BOSH release is not yet published to a public blobstore. Build it
+# from the source repo (src/releases/garage) and upload to the director before
+# deploying:
+#
+#   cd src/releases/garage
+#   bosh create-release --force --name garage --version 0.1.6 --tarball=/tmp/garage-0.1.6.tgz
+#   genesis <env> bosh upload-release /tmp/garage-0.1.6.tgz
+#
+# Once a public release is published, add `url:` and `sha1:` here so Genesis can
+# upload it automatically.
 releases:
 - name:    garage
-  version: 0.0.1
-  url:     https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.0.1/garage-0.0.1.tgz
-  sha1:    sha256:PLACEHOLDER_UPDATE_AFTER_RELEASE_BUILD
+  version: 0.1.6

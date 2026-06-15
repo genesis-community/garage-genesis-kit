@@ -17,11 +17,22 @@ supports:
 - azure
 - gcp
 - openstack
+- pve
 - vsphere
 - stackit
 
 required_configs:
   blueprint: []
+
+credentials:
+  base:
+    # Garage cluster credentials. Generated on `genesis add-secrets`; rotate
+    # the rpc_secret and admin_token with the reset-credentials (r) addon.
+    credentials:
+      access_key:  random 32 allowed-chars 0-9a-f   # 32-hex suffix of GK<access_key>
+      secret_key:  random 64 allowed-chars 0-9a-f   # S3 secret key
+      rpc_secret:  random 64 allowed-chars 0-9a-f   # shared cluster RPC secret
+      admin_token: random 32 allowed-chars 0-9a-f   # admin API bearer token
 
 certificates:
   base:

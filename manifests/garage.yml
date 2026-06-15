@@ -2,7 +2,10 @@
 meta:
   default:
     azs: [z1, z2, z3]
-  domain: (( grab params.garage_domain || "garage.bosh" ))
+  domain:          (( grab params.garage_domain || "garage.bosh" ))
+  access_key_raw:  (( vault meta.vault "/credentials:access_key" ))
+  access_key:      (( concat "GK" meta.access_key_raw ))
+  secret_key:      (( vault meta.vault "/credentials:secret_key" ))
 
 exodus:
   ips:        (( grab instance_groups.garage.networks[0].static_ips ))
@@ -38,8 +41,11 @@ instance_groups:
         log_level:          (( grab params.log_level                 || "info" ))
         metadata_dir:       (( grab params.garage_metadata_dir       || "/var/vcap/store/garage/meta" ))
         data_dir:           (( grab params.garage_data_dir           || "/var/vcap/store/garage/data" ))
-        rpc_secret:         (( vault meta.vault "/credentials/rpc_secret" ))
-        admin_token:        (( vault meta.vault "/credentials/admin_token" ))
+        access_key:         (( grab meta.access_key ))
+        secret_key:         (( grab meta.secret_key ))
+        default_bucket:     (( grab params.garage_default_bucket || "garage" ))
+        rpc_secret:         (( vault meta.vault "/credentials:rpc_secret" ))
+        admin_token:        (( vault meta.vault "/credentials:admin_token" ))
         layout:
           manual:   (( grab params.garage_layout_manual   || false ))
           capacity: (( grab params.garage_layout_capacity || "1T" ))
@@ -52,6 +58,9 @@ instance_groups:
   instances: (( grab params.instances || 1 ))
   azs:       (( grab params.availability_zones || meta.default.azs ))
 
+  env:
+    persistent_disk_fs: xfs
+
   persistent_disk_type: (( grab params.garage_disk_type || "default" ))
   vm_type:              (( grab params.garage_vm_type   || "default" ))
 
@@ -63,11 +72,14 @@ instance_groups:
 - name: smoke-tests
   lifecycle: errand
   instances: 1
-  azs: (( grab params.availability_zones || meta.default.azs ))
+  # Follow the garage instance group's resolved AZs and network so the errand
+  # lands on the same (ocfp or default) network without duplicating the
+  # blueprint's AZ/network logic.
+  azs: (( grab instance_groups.garage.azs ))
   vm_type: (( grab params.errand_vm_type || params.garage_vm_type || "default" ))
   stemcell: default
   networks:
-  - name: (( grab params.garage_network || "garage" ))
+  - name: (( grab instance_groups.garage.networks[0].name ))
   jobs:
   - name: smoke-tests
     release: garage
@@ -76,10 +88,11 @@ instance_groups:
         from: garage-rpc
     properties:
       garage:
-        access_key: (( vault meta.vault "/credentials/smoke_access_key" ))
-        secret_key: (( vault meta.vault "/credentials/smoke_secret_key" ))
-        s3_region:  (( grab params.garage_s3_region || "garage" ))
-        s3_port:    (( grab params.garage_s3_port   || 3900 ))
+        access_key:     (( grab meta.access_key ))
+        secret_key:     (( grab meta.secret_key ))
+        default_bucket: (( grab params.garage_default_bucket || "garage" ))
+        s3_region:      (( grab params.garage_s3_region || "garage" ))
+        s3_port:        (( grab params.garage_s3_port   || 3900 ))
       smoke_tests:
         timeout_secs: (( grab params.smoke_timeout_secs || 30 ))
 

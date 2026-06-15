@@ -7,7 +7,7 @@ use warnings;
 BEGIN {push @INC, $ENV{GENESIS_LIB} ? $ENV{GENESIS_LIB} : $ENV{HOME}.'/.genesis/lib'}
 
 use parent qw(Genesis::Hook::Addon);
-use Genesis qw/info bail/;
+use Genesis qw/info/;
 
 # init - Initialize the hook {{{
 sub init {
@@ -32,11 +32,10 @@ sub perform {
   info("");
   info("Running #C{smoke-tests} errand...");
 
-  my $env        = $self->env;
-  my $deployment = $env->deployment_name;
-
-  system("bosh", "-e", $env->bosh->alias, "-d", $deployment, "run-errand", "smoke-tests") == 0
-    or bail("smoke-tests errand failed (exit %d)", $? >> 8);
+  # Run through the env's BOSH director object so the correct director URL,
+  # credentials, and deployment context are used (a bare `bosh -e <alias>`
+  # relies on a local alias that is not configured on every host).
+  $self->env->bosh->run_errand("smoke-tests");
 
   info("#g{[ok]} smoke-tests passed");
   return $self->done(1);
