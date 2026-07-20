@@ -59,7 +59,7 @@ The following parameters can be set in your environment file under `params:`.
 
 ## Addons
 
-Run addons with `genesis do <env> -- <addon>`.
+Run addons with `genesis <env> do <addon>`.
 
 | Addon | Shortcut | Description |
 |-------|----------|-------------|

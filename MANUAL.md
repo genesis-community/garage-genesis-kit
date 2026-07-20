@@ -58,7 +58,7 @@ Genesis renders the manifest, provisions certificates and credentials in Vault, 
 Run the smoke-tests errand to verify a full S3 round-trip:
 
 ```bash
-genesis do my-env -- smoke
+genesis my-env do smoke
 # or
 bosh -d my-env run-errand smoke-tests
 ```
@@ -76,7 +76,7 @@ safe set secret/<env>/garage/credentials/smoke_access_key value=<ACCESS_KEY_ID>
 safe set secret/<env>/garage/credentials/smoke_secret_key value=<SECRET_KEY>
 ```
 
-After that, `genesis do smoke` runs the errand.
+After that, `genesis my-env do smoke` runs the errand.
 
 ## Scaling Up
 
@@ -120,7 +120,7 @@ export GARAGE_CONFIG_FILE=/var/vcap/jobs/garage/config/garage.toml
 To rotate the `rpc_secret` and `admin_token`:
 
 ```bash
-genesis do my-env -- reset-credentials
+genesis my-env do reset-credentials
 ```
 
 The addon prompts for confirmation (`Type 'y' to continue`), then generates new values using `openssl rand -hex` and stores them in Vault via `safe set`. After rotation, redeploy so all nodes receive the updated secrets:

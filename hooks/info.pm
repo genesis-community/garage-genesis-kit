@@ -57,9 +57,9 @@ sub perform {
 	info("  RPC secret:   (stored in vault at %s/credentials/rpc_secret)", $vault_path);
 	info("");
 	info("Useful commands:");
-	info("  Smoke test:          genesis do %s -- smoke", $env_name);
-	info("  Rotate credentials:  genesis do %s -- reset-credentials", $env_name);
-	info("  Garage CLI info:     genesis do %s -- mc", $env_name);
+	info("  Smoke test:          genesis %s do smoke", $env_name);
+	info("  Rotate credentials:  genesis %s do reset-credentials", $env_name);
+	info("  Garage CLI info:     genesis %s do mc", $env_name);
 
 	return $self->done(1);
 }
