@@ -1,0 +1,56 @@
+azs:
+- name: z1
+  cloud_properties:
+    availability_zone: us-east-1a
+- name: z2
+  cloud_properties:
+    availability_zone: us-east-1b
+- name: z3
+  cloud_properties:
+    availability_zone: us-east-1c
+
+vm_types:
+- name: default
+  cloud_properties:
+    instance_type: m5.large
+    ephemeral_disk: {size: 25_000}
+
+disk_types:
+- name: default
+  disk_size: 10_240
+
+networks:
+- name: garage
+  type: manual
+  subnets:
+  - range:    10.99.1.0/24
+    gateway:  10.99.1.1
+    azs:      [z1]
+    dns:      [8.8.8.8]
+    reserved: [10.99.1.1 - 10.99.1.15]
+    static:   [10.99.1.16 - 10.99.1.40]
+    cloud_properties:
+      subnet: subnet-z1
+  - range:    10.99.2.0/24
+    gateway:  10.99.2.1
+    azs:      [z2]
+    dns:      [8.8.8.8]
+    reserved: [10.99.2.1 - 10.99.2.15]
+    static:   [10.99.2.16 - 10.99.2.40]
+    cloud_properties:
+      subnet: subnet-z2
+  - range:    10.99.3.0/24
+    gateway:  10.99.3.1
+    azs:      [z3]
+    dns:      [8.8.8.8]
+    reserved: [10.99.3.1 - 10.99.3.15]
+    static:   [10.99.3.16 - 10.99.3.40]
+    cloud_properties:
+      subnet: subnet-z3
+
+compilation:
+  workers: 2
+  reuse_compilation_vms: true
+  az: z1
+  vm_type: default
+  network: garage

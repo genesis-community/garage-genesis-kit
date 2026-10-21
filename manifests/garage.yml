@@ -2,6 +2,10 @@
 meta:
   default:
     azs: [z1, z2, z3]
+    # The instance count default lives here rather than as a literal after
+    # "||", because graft (the spruce fork) fails static_ips when the
+    # instances value falls through to a literal default.
+    instances: 1
   domain:          (( grab params.garage_domain || "garage.bosh" ))
   access_key_raw:  (( vault meta.vault "/credentials:access_key" ))
   access_key:      (( concat "GK" meta.access_key_raw ))
@@ -55,7 +59,7 @@ instance_groups:
   - name: bpm
     release: bpm
 
-  instances: (( grab params.instances || 1 ))
+  instances: (( grab params.instances || meta.default.instances ))
   azs:       (( grab params.availability_zones || meta.default.azs ))
 
   env:

@@ -1,0 +1,62 @@
+azs:
+- name: z1
+  cloud_properties:
+    availability_zone: us-east-1a
+- name: z2
+  cloud_properties:
+    availability_zone: us-east-1b
+- name: z3
+  cloud_properties:
+    availability_zone: us-east-1c
+
+vm_types:
+- name: resolute-mgmt.garage.vm-garage
+  cloud_properties:
+    instance_type: m5.large
+    ephemeral_disk: {size: 32_768}
+- name: default
+  cloud_properties:
+    instance_type: m5.large
+    ephemeral_disk: {size: 25_000}
+
+disk_types:
+- name: resolute-mgmt.garage.disk-garage
+  disk_size: 102_400
+- name: default
+  disk_size: 10_240
+
+networks:
+- name: resolute-mgmt.garage.net-garage
+  type: manual
+  subnets:
+  - range:    10.0.2.0/24
+    gateway:  10.0.2.1
+    azs:      [z1]
+    dns:      [8.8.8.8]
+    reserved: [10.0.2.1 - 10.0.2.185]
+    static:   [10.0.2.186 - 10.0.2.198]
+    cloud_properties:
+      subnet: subnet-aaa
+  - range:    10.0.3.0/24
+    gateway:  10.0.3.1
+    azs:      [z2]
+    dns:      [8.8.8.8]
+    reserved: [10.0.3.1 - 10.0.3.185]
+    static:   [10.0.3.186 - 10.0.3.198]
+    cloud_properties:
+      subnet: subnet-bbb
+  - range:    10.0.4.0/24
+    gateway:  10.0.4.1
+    azs:      [z3]
+    dns:      [8.8.8.8]
+    reserved: [10.0.4.1 - 10.0.4.185]
+    static:   [10.0.4.186 - 10.0.4.198]
+    cloud_properties:
+      subnet: subnet-ccc
+
+compilation:
+  workers: 2
+  reuse_compilation_vms: true
+  az: z1
+  vm_type: default
+  network: resolute-mgmt.garage.net-garage

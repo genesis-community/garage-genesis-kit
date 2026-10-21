@@ -4,7 +4,7 @@ A Genesis kit for deploying [Garage](https://garagehq.deuxfleurs.fr/), a lightwe
 
 ## Overview
 
-This kit deploys Garage v1.3.1 under BPM, with optional CF route registration via `route_registrar`. Each BOSH VM runs a single Garage node backed by a persistent disk. Cluster formation is automatic on first deploy and idempotent on subsequent deploys.
+This kit deploys Garage v2.3.0 under BPM on Ubuntu Noble stemcells, or on Ubuntu Resolute stemcells with the `resolute` feature, and it can register CF routes through `route_registrar`. Each BOSH VM runs a single Garage node backed by a persistent disk. Cluster formation is automatic on first deploy and idempotent on subsequent deploys.
 
 ```mermaid
 graph LR
@@ -30,6 +30,7 @@ graph LR
 | `scale-large` | Use large VM type and disk type |
 | `upgrade-serial` | Rolling upgrade: one instance at a time, canary first |
 | `upgrade-all-at-once` | Upgrade all instances simultaneously |
+| `resolute` | Deploy on an Ubuntu Resolute stemcell with bpm 1.4.41 |
 
 ## Quick Start
 

@@ -145,12 +145,6 @@ instance_groups:
 EOF
 	}
 
-	if ($dynamic_static_fragment) {
-		my $statics_file = "manifests/network.dynamic.yml";
-		mkfile_or_fail($self->env->kit->path($statics_file), 0644, $dynamic_static_fragment);
-		$self->add_files($statics_file);
-	}
-
 	$self->add_files('manifests/azure.yml')   if $iaas eq 'azure';
 	$self->add_files('manifests/stackit.yml') if $iaas eq 'stackit';
 
@@ -180,6 +174,9 @@ EOF
 		} elsif ($feature =~ /^upgrade-(serial|all-at-once)$/) {
 			$self->add_files("manifests/upgrade-${1}.yml");
 
+		} elsif ($feature eq 'resolute') {
+			# Handled after the loop so that it overrides every other fragment.
+
 		} elsif (-f "$ENV{GENESIS_ROOT}/${feature}.yml") {
 			$self->add_files("$ENV{GENESIS_ROOT}/${feature}.yml");
 
@@ -187,6 +184,17 @@ EOF
 			push @invalid, $feature;
 		}
 	}
+
+	# The static IP fragment goes after every feature fragment. cluster.yml
+	# sets its own static_ips, and when it came later it replaced params.ips
+	# and, under ocfp, appended a second network to the instance group.
+	if ($dynamic_static_fragment) {
+		my $statics_file = "manifests/network.dynamic.yml";
+		mkfile_or_fail($self->env->kit->path($statics_file), 0644, $dynamic_static_fragment);
+		$self->add_files($statics_file);
+	}
+
+	$self->_process_resolute;
 
 	bail(
 		"Invalid %s encountered: %s",
@@ -196,6 +204,35 @@ EOF
 
 	return $self->done(1);
 }
+
+# _process_resolute - Opt-in ubuntu-resolute stemcell support {{{
+# Called after every other fragment is added so that it overrides the
+# stemcell os default (ubuntu-noble) and the bpm release pin.
+sub _process_resolute {
+	my ($self) = @_;
+
+	if ($self->want_feature('resolute')) {
+		my $stemcell_os = $self->env->lookup('params.stemcell_os', 'ubuntu-resolute');
+		bail(
+			"The #c{resolute} feature sets the stemcell os to ubuntu-resolute, but " .
+			"the environment sets #c{params.stemcell_os} to #R{%s}.  " .
+			"Remove that parameter.", $stemcell_os
+		) if $stemcell_os ne 'ubuntu-resolute';
+		$self->add_files(
+			'manifests/resolute.yml',
+			# bpm releases older than 1.4.41 do not compile on resolute.
+			'manifests/releases/bpm-resolute.yml',
+		);
+	} elsif ($self->env->lookup('params.stemcell_os', 'ubuntu-noble') eq 'ubuntu-resolute') {
+		bail(
+			"The environment sets #c{params.stemcell_os} to ubuntu-resolute " .
+			"without the #c{resolute} feature.  Enable the feature and remove " .
+			"that parameter."
+		);
+	}
+	return;
+}
+# }}}
 
 1;
 # vim: set ts=2 sw=2 sts=2 noet fdm=marker foldlevel=1:

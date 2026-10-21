@@ -1,6 +1,6 @@
 ---
 name:    garage
-version: 0.0.1
+version: 0.1.0
 
 author:
   - Wayne Seguin <weseguin@fivetwenty.io>
@@ -22,7 +22,9 @@ supports:
 - stackit
 
 required_configs:
-  blueprint: []
+  # The manifest takes static IPs from the cloud config network, so the
+  # blueprint and check hooks both need it.
+  cloud: [ blueprint, manifest, check ]
 
 credentials:
   base:

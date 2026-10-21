@@ -6,11 +6,12 @@ Before deploying, ensure the following are available:
 
 - **Genesis 3.1.0 or later** — required for the hook API this kit uses.
 - **Vault** — all credentials and certificates are stored in Vault. Genesis manages provisioning automatically via the `certificates:` block in `kit.yml`.
-- **BOSH director** — the director must have the following releases uploaded:
-  - `bpm` (any recent version; the kit pins `version: latest`)
+- **BOSH director**, which needs the following releases. The kit pins every release it uses, and BOSH fetches each release that has a URL during the deploy:
+  - `bpm` 1.4.22 on noble stemcells, or 1.4.41 when the `resolute` feature is on. The kit pins an exact version instead of `latest`, because bpm 1.4.31 cannot start jobs on noble.
   - `routing` 0.343.0 (required when using the `route-registrar` feature)
   - `bosh-dns-aliases` 0.0.4 (required when using `route-registrar` or `cluster`)
-- **Ubuntu Noble stemcell** — upload with `bosh upload-stemcell`.
+  - `garage` 0.2.0+dev.1, which carries Garage v2.3.0. This is a dev release with no URL, so we upload its tarball before the first deploy with `genesis my-env bosh upload-release <tarball>`. The final release's version, URL, and SHA1 replace this pin once it ships.
+- **Stemcell**, either an Ubuntu Noble stemcell or, when the `resolute` feature is on, an Ubuntu Resolute stemcell. We upload it with `bosh upload-stemcell`.
 
 ## New Environment Walkthrough
 
@@ -63,20 +64,9 @@ genesis my-env do smoke
 bosh -d my-env run-errand smoke-tests
 ```
 
-The errand probes the admin health endpoint on every node, then performs CreateBucket, PutObject, GetObject (with content verification), DeleteObject, HeadObject (expects 404), and DeleteBucket against the primary node.
+The errand first checks that the S3 endpoint answers on every node. It then runs PutObject, GetObject (and checks the content), DeleteObject, and HeadObject (which must return 404) against the first node, inside the default bucket.
 
-## Smoke Tests Prerequisites
-
-Garage does not auto-create S3 keys. Before running the smoke-tests errand for the first time, create a dedicated test key:
-
-```bash
-genesis bosh ssh garage/0 -c 'sudo /var/vcap/packages/garage/bin/garage key create smoke-tests'
-# Capture the access key id + secret key from the output
-safe set secret/<env>/garage/credentials/smoke_access_key value=<ACCESS_KEY_ID>
-safe set secret/<env>/garage/credentials/smoke_secret_key value=<SECRET_KEY>
-```
-
-After that, `genesis my-env do smoke` runs the errand.
+The errand signs its requests with the root key that `genesis add-secrets` generates, so we don't create a key by hand. Its access key id is `GK` followed by `credentials:access_key`, and its secret is `credentials:secret_key`. A single node creates that key and the `default_bucket` when Garage starts. A cluster can't do that at startup, so the garage job's post-deploy script imports the key and creates the bucket once the cluster layout is applied.
 
 ## Scaling Up
 
@@ -91,7 +81,11 @@ params:
 genesis deploy my-env
 ```
 
-The post-deploy auto-bootstrap on instance 0 is idempotent. It assigns layout roles only to nodes in the `NO ROLE ASSIGNED` state and increments the layout version. Existing nodes are not disturbed.
+The post-deploy auto-bootstrap runs on the last instance, which is the one BOSH updates last, so every node has started by the time it runs. It is idempotent. It assigns layout roles only to nodes in the `NO ROLE ASSIGNED` state, puts each node in the zone of its own AZ, and increments the layout version. Existing nodes are not disturbed.
+
+Each new node joins the cluster in its post-start script. It reads the first instance's node id from the admin API and connects to it over RPC. For that reason a cluster binds the admin API to each instance's own IP rather than to loopback, and it requires the admin token on `/metrics` as well. A single node keeps the admin API on `127.0.0.1`. The `garage.admin_bind_address` release property overrides either choice.
+
+The kit defaults `garage_replication_factor` to 1, even for a cluster, which means each object lives on only one node. Set it to 3 for a three-zone cluster before the first deploy, because Garage cannot change the replication factor of a cluster that already holds data.
 
 ## Manual Layout Management
 
@@ -148,7 +142,7 @@ If these keys are missing, re-run the CF genesis deployment to refresh exodus, t
 
 If `garage status` shows inconsistent node states across instances, check that all nodes can reach each other on RPC port 3901.
 
-Inter-node RPC uses an HMAC-shared secret (`rpc_secret`) for peer authentication. Garage v1.x does not support TLS on the RPC channel; the shared secret ensures only authorized peers can join the gossip ring. Rotate via the `reset-credentials` addon.
+Inter-node RPC uses an HMAC-shared secret (`rpc_secret`) for peer authentication. Garage v2.x does not support TLS on the RPC channel; the shared secret ensures only authorized peers can join the gossip ring. Rotate via the `reset-credentials` addon.
 
 If nodes still cannot communicate after verifying network connectivity, confirm the `rpc_secret` is identical on all nodes by rotating credentials and redeploying.
 
@@ -186,10 +180,24 @@ All secrets are stored under `<vault_mount>/<env>/garage/` by Genesis.
 | Path | Key | Content |
 |------|-----|---------|
 | `/certs/ca` | `certificate` | CA certificate (PEM) — reserved for future external client verification |
-| `/credentials/rpc_secret` | (value) | 64-character hex RPC secret shared across all nodes |
-| `/credentials/admin_token` | (value) | Garage admin API bearer token |
-| `/credentials/smoke_access_key` | `value` | S3 access key ID for the smoke-tests errand |
-| `/credentials/smoke_secret_key` | `value` | S3 secret key for the smoke-tests errand |
+| `/credentials` | `access_key` | 32-character hex suffix of the root S3 access key id (`GK<access_key>`), used by the smoke-tests errand |
+| `/credentials` | `secret_key` | 64-character hex root S3 secret key |
+| `/credentials` | `rpc_secret` | 64-character hex RPC secret shared across all nodes |
+| `/credentials` | `admin_token` | Garage admin API bearer token |
+
+## Resolute Stemcells
+
+The `resolute` feature deploys Garage on an Ubuntu Resolute (26.04) stemcell instead of Noble. It sets `params.stemcell_os` to `ubuntu-resolute` and pins bpm 1.4.41, because earlier bpm releases cannot start jobs on Resolute. Noble deployments stay on bpm 1.4.22.
+
+```yaml
+kit:
+  features:
+  - resolute
+```
+
+The blueprint refuses two settings that would leave the stemcell and bpm out of step. It refuses the `resolute` feature together with a `stemcell_os` other than `ubuntu-resolute`, and it refuses `stemcell_os: ubuntu-resolute` without the feature. In both cases we remove the `stemcell_os` parameter and let the feature choose.
+
+The director needs a Resolute stemcell before the deploy. Set `params.stemcell_version` to pin one, or leave it unset to take the latest that the director has.
 
 ## Feature Reference
 
@@ -203,6 +211,7 @@ All secrets are stored under `<vault_mount>/<env>/garage/` by Genesis.
 | `scale-large` | `manifests/scale-large.yml` |
 | `upgrade-serial` | `manifests/upgrade-serial.yml` |
 | `upgrade-all-at-once` | `manifests/upgrade-all-at-once.yml` |
+| `resolute` | `manifests/resolute.yml`, `manifests/releases/bpm-resolute.yml` |
 
 IaaS overlays (`azure`, `stackit`) are applied automatically by the blueprint hook based on the detected IaaS type; they do not need to be listed in `features:`.
 
@@ -217,4 +226,8 @@ IaaS overlays (`azure`, `stackit`) are applied automatically by the blueprint ho
 | `garage_route_prefix` | `s3-api` | Route hostname prefix (suffix is always the CF system domain from exodus) |
 | `availability_zones` | `[z1, z2, z3]` | BOSH AZs |
 | `garage_layout_manual` | `false` | Skip auto cluster layout bootstrap |
+| `garage_replication_factor` | `1` | Copies of each object, which we set before the first deploy |
+| `ips` | (from the network's static range) | Static IPs for the Garage nodes. Under `ocfp` they come from the subnet's `garage_ip` reserved IPs |
+| `stemcell_os` | `ubuntu-noble` | Stemcell OS, which the `resolute` feature sets to `ubuntu-resolute` |
+| `stemcell_version` | `latest` | Stemcell version |
 | `azure_availability_set` | `garage_as` | Azure VM availability set name (Azure only) |

@@ -1,4 +1,10 @@
 ---
+# bpm for ubuntu-noble.  Pinned instead of "latest", because "latest" picks
+# whatever bpm the director already holds, and bpm 1.4.31 cannot start any
+# process on a noble (cgroup v2) stemcell.  The resolute feature replaces
+# this pin with manifests/releases/bpm-resolute.yml.
 releases:
 - name:    bpm
-  version: latest
+  version: 1.4.22
+  url:     https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.22
+  sha1:    sha256:51f2eab4b59939db733beb8f7905e461a732cc29d85e54f151f576cd5bf0c414

@@ -1,0 +1,114 @@
+exodus:
+  bosh: proto-main
+  ca: <!{meta.vault}/certs/ca:certificate!>
+  cluster: false
+  domain: garage.bosh
+  features: ocfp
+  iaas: aws
+  ips: 10.0.2.190,10.0.3.190,10.0.4.190
+  is_director: false
+  s3_api_url: http://10.0.2.190:3900
+  scale: null
+  services: s3
+  use_create_env: false
+instance_groups:
+- azs:
+  - z1
+  - z2
+  - z3
+  env:
+    persistent_disk_fs: xfs
+  instances: 3
+  jobs:
+  - consumes:
+      garage-rpc:
+        from: garage-rpc
+    name: garage
+    properties:
+      garage:
+        access_key: GK<!{meta.vault}/credentials:access_key!>
+        admin_port: 3903
+        admin_token: <!{meta.vault}/credentials:admin_token!>
+        block_size: 1048576
+        bpm:
+          open_files: 65536
+        compression_level: 1
+        consistency_mode: consistent
+        data_dir: /var/vcap/store/garage/data
+        db_engine: lmdb
+        default_bucket: garage
+        layout:
+          capacity: 1T
+          manual: false
+        log_level: info
+        metadata_dir: /var/vcap/store/garage/meta
+        metadata_fsync: false
+        replication_factor: 1
+        rpc_port: 3901
+        rpc_secret: <!{meta.vault}/credentials:rpc_secret!>
+        s3_port: 3900
+        s3_region: garage
+        s3_root_domain: ""
+        secret_key: <!{meta.vault}/credentials:secret_key!>
+    provides:
+      garage-rpc:
+        as: garage-rpc
+    release: garage
+  - name: bpm
+    release: bpm
+  name: garage
+  networks:
+  - name: ocfp-mgmt.garage.net-garage
+    static_ips:
+    - 10.0.2.190
+    - 10.0.3.190
+    - 10.0.4.190
+  persistent_disk_type: ocfp-mgmt.garage.disk-garage
+  stemcell: default
+  vm_type: ocfp-mgmt.garage.vm-garage
+- azs:
+  - z1
+  - z2
+  - z3
+  instances: 1
+  jobs:
+  - consumes:
+      garage-rpc:
+        from: garage-rpc
+    name: smoke-tests
+    properties:
+      garage:
+        access_key: GK<!{meta.vault}/credentials:access_key!>
+        default_bucket: garage
+        s3_port: 3900
+        s3_region: garage
+        secret_key: <!{meta.vault}/credentials:secret_key!>
+      smoke_tests:
+        timeout_secs: 30
+    release: garage
+  lifecycle: errand
+  name: smoke-tests
+  networks:
+  - name: ocfp-mgmt.garage.net-garage
+    static_ips:
+    - 10.0.2.191
+  stemcell: default
+  vm_type: ocfp-mgmt.garage.vm-garage
+name: ocfp-mgmt-garage
+releases:
+- name: garage
+  version: 0.2.0+dev.1
+- name: bpm
+  sha1: sha256:51f2eab4b59939db733beb8f7905e461a732cc29d85e54f151f576cd5bf0c414
+  url: https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.22
+  version: 1.4.22
+stemcells:
+- alias: default
+  os: ubuntu-noble
+  version: latest
+update:
+  canaries: 1
+  canary_watch_time: 30000-600000
+  max_in_flight: 1
+  serial: true
+  update_watch_time: 30000-600000

@@ -24,85 +24,91 @@ sub perform {
 	my ($self) = @_;
 	my $ok = 1;
 
-	# Cloud Config checks
-	if ($ENV{GENESIS_CLOUD_CONFIG}) {
-		$self->start_check("Checking cloud config");
-
-		my @errors;
-
-		push @errors, $self->env->missing_cloud_config_keys(
-			vm_type   => [$self->env->lookup('params.garage_vm_type',   'default')],
-			network   => [$self->env->lookup('params.garage_network',   'garage')],
-			disk_type => [$self->env->lookup('params.garage_disk_type', 'default')],
-		);
-
-		if (@errors) {
-			$self->check_result(0, join("\n", @errors));
-			$ok = 0;
-		} else {
-			$self->check_result(1);
-		}
-	}
-
-	# route-registrar: verify CF exodus has required fields
-	# uses NATS mTLS (cert+key), not the older password-based auth
-	if ($self->want_feature('route-registrar')) {
-		$self->start_check("Checking CF exodus data for route-registrar");
-
-		my @errors;
-		my $cf_exodus = eval { $self->env->cf_exodus_lookup('/') };
-		if ($@) {
-			push @errors, "Could not read CF exodus data: $@";
-		} else {
-			push @errors, "CF exodus missing system_domain"
-				unless $cf_exodus->{system_domain};
-			push @errors, "CF exodus missing nats_client_cert"
-				unless $cf_exodus->{nats_client_cert};
-			push @errors, "CF exodus missing nats_client_key"
-				unless $cf_exodus->{nats_client_key};
-		}
-
-		if (@errors) {
-			$self->check_result(0, join("\n", @errors));
-			$ok = 0;
-		} else {
-			$self->check_result(1);
-		}
-	}
-
-	# Stemcell availability check (warn only — bosh deploy enforces hard error)
-	{
-		$self->start_check("Checking stemcell ubuntu-noble availability");
-		my $stemcell_os = $self->env->lookup('params.stemcell_os', 'ubuntu-noble');
-		my @stemcells   = eval { $self->env->bosh->stemcells() };
-		if ($@) {
-			# Non-fatal: bosh connectivity failure during check is best-effort
-			warning("Could not query BOSH director for stemcells: %s", $@);
-			$self->check_result(1, "skipped (could not contact director)");
-		} else {
-			# bosh->stemcells() may return hashrefs (with an 'os' key) or
-			# plain "os@version" strings depending on Genesis version; match
-			# either form.
-			my ($found) = grep {
-				ref($_) eq 'HASH'
-					? (($_->{os} // '') eq $stemcell_os)
-					: (defined($_) && $_ =~ /\Q$stemcell_os\E/);
-			} @stemcells;
-			if ($found) {
-				$self->check_result(1);
-			} else {
-				warning(
-					"Stemcell '%s' not found in director — upload before deploying",
-					$stemcell_os
-				);
-				# check_result(1) because bosh deploy will produce the hard error;
-				# we only warn here to give early feedback.
-				$self->check_result(1, "warning: stemcell '$stemcell_os' not uploaded");
-			}
-		}
-	}
+	$ok = 0 unless $self->check_cloud_config;
+	$ok = 0 unless $self->check_route_registrar;
+	$self->check_stemcell;
 
 	return $self->done($ok);
+}
+# }}}
+
+# check_cloud_config - The vm type, network, and disk type the manifest uses {{{
+sub check_cloud_config {
+	my ($self) = @_;
+	return 1 unless $ENV{GENESIS_CLOUD_CONFIG};
+
+	$self->start_check('cloud-config');
+
+	# The ocfp feature names every entry after the environment and type
+	# (manifests/ocfp.yml); otherwise the params, or their defaults, apply.
+	my ($vm_type, $network, $disk_type);
+	if ($self->want_feature('ocfp')) {
+		my $cloud = "$ENV{GENESIS_ENVIRONMENT}.$ENV{GENESIS_TYPE}.";
+		($vm_type, $network, $disk_type) = map {"${cloud}$_"} qw/vm-garage net-garage disk-garage/;
+	} else {
+		$vm_type   = $self->env->lookup('params.garage_vm_type',   'default');
+		$network   = $self->env->lookup('params.garage_network',   'garage');
+		$disk_type = $self->env->lookup('params.garage_disk_type', 'default');
+	}
+
+	$self->has_entry('cloud-config', 'vm_type',   $vm_type);
+	$self->has_entry('cloud-config', 'network',   $network);
+	$self->has_entry('cloud-config', 'disk_type', $disk_type);
+
+	return $self->check_result('cloud-config');
+}
+# }}}
+
+# check_route_registrar - CF exodus data the route-registrar feature needs {{{
+# route-registrar uses NATS mTLS (cert+key), not the older password-based auth.
+sub check_route_registrar {
+	my ($self) = @_;
+	return 1 unless $self->want_feature('route-registrar');
+
+	$self->start_check('route-registrar');
+
+	my @errors;
+	my $cf_exodus = eval { $self->env->cf_exodus_lookup('/') };
+	if ($@) {
+		push @errors, "could not read CF exodus data: $@";
+	} else {
+		push @errors, "CF exodus missing system_domain"    unless $cf_exodus->{system_domain};
+		push @errors, "CF exodus missing nats_client_cert" unless $cf_exodus->{nats_client_cert};
+		push @errors, "CF exodus missing nats_client_key"  unless $cf_exodus->{nats_client_key};
+	}
+
+	return $self->check_result('route-registrar', 'failed', join('; ', @errors)) if @errors;
+	return $self->check_result('route-registrar', 'passed');
+}
+# }}}
+
+# check_stemcell - Warn when the director lacks the stemcell os {{{
+# Warn only: bosh deploy produces the hard error.
+sub check_stemcell {
+	my ($self) = @_;
+
+	my $stemcell_os = $self->env->lookup(
+		'params.stemcell_os',
+		$self->want_feature('resolute') ? 'ubuntu-resolute' : 'ubuntu-noble'
+	);
+	$self->start_check("stemcell $stemcell_os");
+
+	my @stemcells = eval { $self->env->bosh->stemcells() };
+	if ($@) {
+		return $self->check_result('stemcell', 'skipped', 'could not contact the director');
+	}
+
+	# bosh->stemcells() may return hashrefs (with an 'os' key) or plain
+	# "os@version" strings depending on Genesis version; match either form.
+	my ($found) = grep {
+		ref($_) eq 'HASH'
+			? (($_->{os} // '') eq $stemcell_os)
+			: (defined($_) && $_ =~ /\Q$stemcell_os\E/);
+	} @stemcells;
+
+	return $self->check_result('stemcell', 'passed') if $found;
+	warning("Stemcell '%s' not found in director — upload before deploying", $stemcell_os);
+	return $self->check_result('stemcell', 'warning', "$stemcell_os not uploaded");
 }
 # }}}
 
