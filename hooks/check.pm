@@ -10,6 +10,14 @@ use parent qw(Genesis::Hook::Check);
 
 use Genesis qw/info warning/;
 
+# Include the shared cluster shape helpers
+BEGIN {
+	require File::Basename;
+	require File::Spec;
+	my $mixin_file = File::Basename::dirname(File::Spec->rel2abs(__FILE__)) . '/lib/_garage_shape.pm';
+	do $mixin_file or die "Failed to include hook mixin $mixin_file: " . ($@ || $! || 'unknown error');
+}
+
 # init - Initialize the hook {{{
 sub init {
 	my ($class, %ops) = @_;
@@ -26,7 +34,12 @@ sub perform {
 
 	$ok = 0 unless $self->check_cloud_config;
 	$ok = 0 unless $self->check_route_registrar;
-	$self->check_stemcell;
+	$ok = 0 unless $self->check_cluster_shape;
+
+	# Stemcells are left to Genesis core, which checks every stemcell the
+	# manifest names on deploy and on `genesis check --stemcells`, and skips
+	# them under --no-stemcells.  The kit used to repeat that check here and
+	# contacted the director even when the operator had turned it off.
 
 	return $self->done($ok);
 }
@@ -39,17 +52,21 @@ sub check_cloud_config {
 
 	$self->start_check('cloud-config');
 
-	# The ocfp feature names every entry after the environment and type
-	# (manifests/ocfp.yml); otherwise the params, or their defaults, apply.
-	my ($vm_type, $network, $disk_type);
+	# An explicit param always wins, as it does in the manifest.  Without one,
+	# the ocfp feature names every entry after the environment and type
+	# (manifests/ocfp.yml), and otherwise the manifest defaults apply.
+	my %default = (vm_type => 'default', network => 'garage', disk_type => 'default');
 	if ($self->want_feature('ocfp')) {
 		my $cloud = "$ENV{GENESIS_ENVIRONMENT}.$ENV{GENESIS_TYPE}.";
-		($vm_type, $network, $disk_type) = map {"${cloud}$_"} qw/vm-garage net-garage disk-garage/;
-	} else {
-		$vm_type   = $self->env->lookup('params.garage_vm_type',   'default');
-		$network   = $self->env->lookup('params.garage_network',   'garage');
-		$disk_type = $self->env->lookup('params.garage_disk_type', 'default');
+		%default = (
+			vm_type   => "${cloud}vm-garage",
+			network   => "${cloud}net-garage",
+			disk_type => "${cloud}disk-garage",
+		);
 	}
+	my $vm_type   = scalar($self->env->lookup('params.garage_vm_type',   $default{vm_type}));
+	my $network   = scalar($self->env->lookup('params.garage_network',   $default{network}));
+	my $disk_type = scalar($self->env->lookup('params.garage_disk_type', $default{disk_type}));
 
 	$self->has_entry('cloud-config', 'vm_type',   $vm_type);
 	$self->has_entry('cloud-config', 'network',   $network);
@@ -67,10 +84,15 @@ sub check_route_registrar {
 
 	$self->start_check('route-registrar');
 
+	# The manifest reads the CF exodus data of the environment with the same
+	# name (manifests/route-registrar.yml), so the check reads it from there.
 	my @errors;
-	my $cf_exodus = eval { $self->env->cf_exodus_lookup('/') };
+	my $cf_slug   = $self->env->name . '/cf';
+	my $cf_exodus = eval { scalar($self->env->exodus_lookup('.', undef, $cf_slug)) };
 	if ($@) {
 		push @errors, "could not read CF exodus data: $@";
+	} elsif (ref($cf_exodus) ne 'HASH') {
+		push @errors, "no CF exodus data under $cf_slug, so deploy CF first";
 	} else {
 		push @errors, "CF exodus missing system_domain"    unless $cf_exodus->{system_domain};
 		push @errors, "CF exodus missing nats_client_cert" unless $cf_exodus->{nats_client_cert};
@@ -82,33 +104,41 @@ sub check_route_registrar {
 }
 # }}}
 
-# check_stemcell - Warn when the director lacks the stemcell os {{{
-# Warn only: bosh deploy produces the hard error.
-sub check_stemcell {
+# check_cluster_shape - Refuse unsafe replication factors and shrinking {{{
+# Garage keeps replication_factor copies of each object, refuses to start a
+# node whose factor differs from the one in its stored layout, and loses the
+# copies on any node BOSH deletes before the layout has moved them.  The
+# last deploy's exodus data holds the factor and the instance count it
+# used, so the next deploy is compared against them.  A first deploy has no
+# exodus data and only gets the checks that need none.
+sub check_cluster_shape {
 	my ($self) = @_;
+	$self->start_check('garage cluster shape');
 
-	my $stemcell_os = $self->env->lookup(
-		'params.stemcell_os',
-		$self->want_feature('resolute') ? 'ubuntu-resolute' : 'ubuntu-noble'
+	my $instances = $self->_garage_instance_count;
+	my ($rf, $explicit) = $self->_garage_replication_factor($instances);
+	my $previous = $self->_garage_previous_shape($explicit ? $rf : undef);
+
+	my @errors = _garage_shape_errors(
+		instances        => $instances,
+		rf               => $rf,
+		previous         => $previous,
+		allow_rf1        => scalar($self->env->lookup('params.garage_allow_rf1', 0)),
+		allow_scale_down => scalar($self->env->lookup('params.garage_allow_scale_down', 0)),
 	);
-	$self->start_check("stemcell $stemcell_os");
-
-	my @stemcells = eval { $self->env->bosh->stemcells() };
-	if ($@) {
-		return $self->check_result('stemcell', 'skipped', 'could not contact the director');
+	if (@errors) {
+		info("[[    - >>#R{%s}", $_) for @errors;
+		return $self->check_result('garage cluster shape', 'failed');
 	}
 
-	# bosh->stemcells() may return hashrefs (with an 'os' key) or plain
-	# "os@version" strings depending on Genesis version; match either form.
-	my ($found) = grep {
-		ref($_) eq 'HASH'
-			? (($_->{os} // '') eq $stemcell_os)
-			: (defined($_) && $_ =~ /\Q$stemcell_os\E/);
-	} @stemcells;
-
-	return $self->check_result('stemcell', 'passed') if $found;
-	warning("Stemcell '%s' not found in director — upload before deploying", $stemcell_os);
-	return $self->check_result('stemcell', 'warning', "$stemcell_os not uploaded");
+	return $self->check_result(
+		'garage cluster shape', 'passed',
+		sprintf(
+			"%d %s with a replication factor of %d%s",
+			$instances, $instances == 1 ? 'node' : 'nodes', $rf,
+			$previous ? '' : ' (first deploy)'
+		)
+	);
 }
 # }}}
 

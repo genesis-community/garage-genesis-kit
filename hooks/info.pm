@@ -41,7 +41,7 @@ sub perform {
 
 	my $cluster_mode = $cluster ? 'yes' : 'no';
 
-	my $vault_path   = $self->env->vault_path;
+	(my $vault_path  = $self->env->secrets_base . 'credentials') =~ s{^/+}{};
 	my $env_name     = $self->env->name;
 	my $deployment   = $self->env->deployment_name;
 
@@ -49,12 +49,14 @@ sub perform {
 	info("  Deployment:   %s", $deployment);
 	info("  S3 API URL:   %s", $s3_api_url);
 	info("  IPs:          %s", $ips);
+	info("  Instances:    %s", $instance_count);
 	info("  Cluster mode: %s", $cluster_mode);
 	if ($cluster && $cluster_size) {
 		info("  Cluster size: %s", $cluster_size);
 	}
-	info("  Admin token:  (stored in vault at %s/credentials/admin_token)", $vault_path);
-	info("  RPC secret:   (stored in vault at %s/credentials/rpc_secret)", $vault_path);
+	info("  Replication:  %s", $exodus->{replication_factor} // '(not recorded)');
+	info("  Admin token:  (stored in vault at %s:admin_token)", $vault_path);
+	info("  RPC secret:   (stored in vault at %s:rpc_secret)", $vault_path);
 	info("");
 	info("Useful commands:");
 	info("  Smoke test:          genesis %s do smoke", $env_name);

@@ -1,0 +1,13 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+
+genesis:
+  env:      rf1-cluster
+  entomb:   false
+
+params:
+  garage_replication_factor: 1

@@ -1,0 +1,12 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features: []
+
+genesis:
+  env:      rf-exceeds-instances
+  entomb:   false
+
+params:
+  garage_replication_factor: 3

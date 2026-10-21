@@ -1,0 +1,6 @@
+---
+cf:
+  system_domain:    sys.test.cf.domain
+  core_network:     core_network
+  nats_client_cert: test-nats-client-cert
+  nats_client_key:  test-nats-client-key

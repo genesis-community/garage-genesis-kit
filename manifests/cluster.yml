@@ -6,7 +6,7 @@ meta:
 
 exodus:
   cluster:      true
-  cluster_size: (( grab params.instances || meta.default.instances ))
+  cluster_size: (( grab instance_groups.garage.instances ))
 
 instance_groups:
 - name: garage

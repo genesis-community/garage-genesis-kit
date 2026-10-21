@@ -6,6 +6,9 @@ meta:
     # "||", because graft (the spruce fork) fails static_ips when the
     # instances value falls through to a literal default.
     instances: 1
+    # The blueprint replaces this with 3 for three or more nodes, and with
+    # the node count below that.  See hooks/blueprint.pm.
+    replication_factor: 1
   domain:          (( grab params.garage_domain || "garage.bosh" ))
   access_key_raw:  (( vault meta.vault "/credentials:access_key" ))
   access_key:      (( concat "GK" meta.access_key_raw ))
@@ -17,6 +20,11 @@ exodus:
   s3_api_url: (( concat "http://" instance_groups.garage.networks[0].static_ips[0] ":3900" ))
   ca:         (( vault meta.vault "/certs/ca:certificate" ))
   cluster:    false
+  # The check hook compares the next deploy against these two, because
+  # Garage cannot change its replication factor and loses data when nodes
+  # are deleted before the layout has moved their partitions elsewhere.
+  replication_factor: (( grab instance_groups.garage.jobs.garage.properties.garage.replication_factor ))
+  instances:          (( grab instance_groups.garage.instances ))
 
 instance_groups:
 - name: garage
@@ -36,7 +44,7 @@ instance_groups:
         admin_port:         (( grab params.garage_admin_port         || 3903 ))
         s3_region:          (( grab params.garage_s3_region          || "garage" ))
         s3_root_domain:     (( grab params.garage_s3_root_domain     || "" ))
-        replication_factor: (( grab params.garage_replication_factor || 1 ))
+        replication_factor: (( grab params.garage_replication_factor || meta.default.replication_factor ))
         db_engine:          (( grab params.garage_db_engine          || "lmdb" ))
         block_size:         (( grab params.garage_block_size         || 1048576 ))
         compression_level:  (( grab params.garage_compression_level  || 1 ))

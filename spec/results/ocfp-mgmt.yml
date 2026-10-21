@@ -5,8 +5,10 @@ exodus:
   domain: garage.bosh
   features: ocfp
   iaas: aws
+  instances: 3
   ips: 10.0.2.190,10.0.3.190,10.0.4.190
   is_director: false
+  replication_factor: 3
   s3_api_url: http://10.0.2.190:3900
   scale: null
   services: s3
@@ -43,7 +45,7 @@ instance_groups:
         log_level: info
         metadata_dir: /var/vcap/store/garage/meta
         metadata_fsync: false
-        replication_factor: 1
+        replication_factor: 3
         rpc_port: 3901
         rpc_secret: <!{meta.vault}/credentials:rpc_secret!>
         s3_port: 3900

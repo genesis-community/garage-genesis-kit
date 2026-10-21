@@ -1,0 +1,7 @@
+---
+# Exodus data from a kit that recorded neither the replication factor nor
+# the instance count, and that defaulted the factor to 1.
+garage:
+  s3_api_url: http://10.99.1.10:3900
+  ips:        10.99.1.10,10.99.1.11,10.99.1.12
+  cluster:    "true"

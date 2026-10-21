@@ -1,0 +1,12 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+
+genesis:
+  env:      rf-change
+  entomb:   false
+
+params: {}

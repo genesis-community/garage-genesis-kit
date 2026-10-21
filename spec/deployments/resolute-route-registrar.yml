@@ -1,0 +1,14 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - resolute
+  - route-registrar
+
+genesis:
+  env:      resolute-route-registrar
+  entomb:   false
+
+params:
+  stemcell_version: "0.184"

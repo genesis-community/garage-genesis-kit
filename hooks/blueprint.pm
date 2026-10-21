@@ -10,6 +10,14 @@ use parent qw(Genesis::Hook::Blueprint);
 
 use Genesis qw/bail info warning error mkfile_or_fail count_nouns/;
 
+# Include the shared cluster shape helpers
+BEGIN {
+	require File::Basename;
+	require File::Spec;
+	my $mixin_file = File::Basename::dirname(File::Spec->rel2abs(__FILE__)) . '/lib/_garage_shape.pm';
+	do $mixin_file or die "Failed to include hook mixin $mixin_file: " . ($@ || $! || 'unknown error');
+}
+
 sub init {
 	my $class = shift;
 	my $obj = $class->SUPER::init(@_);
@@ -35,33 +43,24 @@ sub perform {
 
 	my $dynamic_static_fragment = '';
 	if ($self->want_feature('ocfp')) {
-		# Determine instance count and IPs from ocfp config
-		my $subnets = $self->env->ocfp_config_lookup('net.subnets');
-		my $prefix   = $self->env->ocfp_subnet_prefix;
-		my $az_map   = $self->env->director_exodus_lookup('/network')->{azs};
-
-		my (@ips, @azs) = ();
-		# Dedicated static IP for the smoke-tests errand taken from instance 0's
-		# subnet. The "garage_ip_smoke" reserved-ip is collected here and pinned
-		# to the smoke-tests errand IG via a (( replace )) network fragment so
-		# spruce does not append a duplicate network entry.
-		my $smoke_ip;
-		for my $subnet (sort grep {/^$prefix/} keys %$subnets) {
-			my $ip = $subnets->{$subnet}{'reserved-ips'}{'garage_ip'};
-			next unless $ip;
-			push @ips, $ip;
-			$smoke_ip //= $subnets->{$subnet}{'reserved-ips'}{'garage_ip_smoke'};
-
-			my $az = $subnets->{$subnet}{az};
-			if (!$az) {
-				warning("No AZ found for subnet %s", $subnet);
-				push @azs, undef;
+		# Determine instance count and IPs from ocfp config.  The dedicated
+		# static IP for the smoke-tests errand comes from instance 0's subnet.
+		# The "garage_ip_smoke" reserved-ip is pinned to the smoke-tests errand
+		# IG via a (( replace )) network fragment so spruce does not append a
+		# duplicate network entry.
+		my $az_map = $self->env->director_exodus_lookup('/network')->{azs};
+		my ($reserved_ips, $subnet_azs, $smoke_ip) = $self->_garage_ocfp_reserved;
+		my @ips = @$reserved_ips;
+		my @azs = map {
+			if (!$_) {
+				warning("No AZ found for a subnet that reserves a garage_ip");
+				undef;
 			} else {
-				push @azs, $az_map->{$az}{name} || undef;
+				$az_map->{$_}{name} || undef;
 			}
-		}
+		} @$subnet_azs;
 
-		my $instances = $self->env->lookup('params.ocfp_instances') || scalar(@ips);
+		my $instances = $self->_garage_instance_count;
 		bail(
 			"Only %s instances available under OCFP; environment requested %s",
 			scalar(@ips), $instances
@@ -185,14 +184,24 @@ EOF
 		}
 	}
 
+	# The default replication factor depends on how many nodes the manifest
+	# deploys, which spruce cannot work out, so it is set here.  Three nodes
+	# or more get three copies, and smaller clusters get one copy per node.
+	# An explicit params.garage_replication_factor still wins in the manifest.
+	my $default_rf = _garage_default_rf($self->_garage_instance_count);
+	$dynamic_static_fragment = <<"EOF" . $dynamic_static_fragment;
+meta:
+  default:
+    replication_factor: $default_rf
+
+EOF
+
 	# The static IP fragment goes after every feature fragment. cluster.yml
 	# sets its own static_ips, and when it came later it replaced params.ips
 	# and, under ocfp, appended a second network to the instance group.
-	if ($dynamic_static_fragment) {
-		my $statics_file = "manifests/network.dynamic.yml";
-		mkfile_or_fail($self->env->kit->path($statics_file), 0644, $dynamic_static_fragment);
-		$self->add_files($statics_file);
-	}
+	my $statics_file = "manifests/network.dynamic.yml";
+	mkfile_or_fail($self->env->kit->path($statics_file), 0644, $dynamic_static_fragment);
+	$self->add_files($statics_file);
 
 	$self->_process_resolute;
 

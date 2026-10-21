@@ -5,9 +5,11 @@ exodus:
   domain: garage.bosh
   features: resolute
   iaas: null
+  instances: 1
   ips:
   - 10.99.1.16
   is_director: false
+  replication_factor: 1
   s3_api_url: http://10.99.1.16:3900
   scale: null
   services: s3

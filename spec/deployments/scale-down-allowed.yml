@@ -1,0 +1,14 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+
+genesis:
+  env:      scale-down-allowed
+  entomb:   false
+
+params:
+  instances:               2
+  garage_allow_scale_down: true
