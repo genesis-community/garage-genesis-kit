@@ -1,0 +1,13 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+
+genesis:
+  env:      scale-below-rf
+  entomb:   false
+
+params:
+  instances: 2

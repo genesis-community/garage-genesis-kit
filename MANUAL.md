@@ -10,7 +10,7 @@ Before deploying, ensure the following are available:
   - `bpm` 1.4.22 on noble stemcells, or 1.4.41 when the `resolute` feature is on. The kit pins an exact version instead of `latest`, because bpm 1.4.31 cannot start jobs on noble.
   - `routing` 0.343.0 (required when using the `route-registrar` feature)
   - `bosh-dns-aliases` 0.0.4 (required when using `route-registrar` or `cluster`)
-  - `garage` 0.2.0, which carries Garage v2.3.0. Genesis uploads it from its GitHub release URL, so no tarball has to be uploaded by hand.
+  - `garage` 0.2.1, which carries Garage v2.3.0. Genesis uploads it from its GitHub release URL, so no tarball has to be uploaded by hand.
 - **Stemcell**, either an Ubuntu Noble stemcell or, when the `resolute` feature is on, an Ubuntu Resolute stemcell. We upload it with `bosh upload-stemcell`.
 
 ## New Environment Walkthrough
@@ -85,25 +85,55 @@ The post-deploy auto-bootstrap runs on the last instance, which is the one BOSH 
 
 Each new node joins the cluster in its post-start script. It reads the first instance's node id from the admin API and connects to it over RPC. For that reason a cluster binds the admin API to each instance's own IP rather than to loopback, and it requires the admin token on `/metrics` as well. A single node keeps the admin API on `127.0.0.1`. The `garage.admin_bind_address` release property overrides either choice.
 
+Garage keeps the copies of each object in different zones, and the kit puts each node in the zone of its own AZ. A new node takes a share of the data only when its zone can use the extra capacity. With three AZs and three copies, every zone holds one copy of everything, so growing from three nodes to five leaves the two new nodes empty, because the third zone still has a single node. We grow such a cluster by one node per AZ at a time, from three nodes to six, and `garage layout show` lists the usable capacity of each node.
+
 When `garage_replication_factor` is unset, the kit picks it from the number of nodes it deploys. Three or more nodes get three copies of each object, and a smaller deployment gets one copy per node. This holds under `ocfp` too, with or without the `cluster` feature. Garage cannot change the replication factor of a cluster once it has a layout, so we settle it before the first deploy.
 
 The check hook refuses a cluster shape that would lose data. It refuses a factor of 1 on more than one node, because every object would then live on a single disk, unless we set `params.garage_allow_rf1: true` to accept that risk. It also refuses a factor larger than the number of nodes, since Garage needs one node per copy.
 
-Every deploy records the replication factor and the instance count in exodus, and the check hook compares the next deploy against them. It refuses any change to the factor, because Garage will not start a node whose factor differs from the one in its stored layout. A first deploy has nothing to compare against, so it passes. An environment deployed by an older kit has no factor in exodus, and the hook assumes that kit's default of 1. For such an environment we set `params.garage_replication_factor` to the factor the cluster runs today, and we add `params.garage_allow_rf1: true` if that factor is 1.
+Every deploy records the replication factor, the instance count, and the garage release version in exodus, and the check hook compares the next deploy against them. It refuses any change to the factor, because Garage will not start a node whose factor differs from the one in its stored layout. A first deploy has nothing to compare against, so it passes. An environment deployed by an older kit has no factor in exodus, and the hook assumes that kit's default of 1. For such an environment we set `params.garage_replication_factor` to the factor the cluster runs today, and we add `params.garage_allow_rf1: true` if that factor is 1.
+
+A single node keeps one copy of each object, so growing it into a cluster with the default factor of 3 is a factor change, and the check hook refuses it. We have two ways forward. If one copy per object is enough, we set `params.garage_replication_factor: 1` and `params.garage_allow_rf1: true` and deploy with more instances. The post-deploy script gives the new nodes their roles, and it moves the first node out of the zone `dc1` that single-node mode gave it and into the zone of its AZ, so that the first node takes its share of the data. If we want three copies, we build a new cluster and copy the data across, as described in [Moving Data to a New Cluster](#moving-data-to-a-new-cluster).
 
 ## Scaling Down
 
-The check hook refuses a deploy that lowers the instance count. BOSH deletes a departing node together with its persistent disk, and Garage loses every copy that disk holds unless the data has moved first. We scale down in this order:
+To remove nodes, we lower `params.instances` (or shorten `params.ips`) and deploy, the same way we scale up. BOSH deletes the instances with the highest indexes, and the garage release moves each departing node's data to the rest of the cluster before BOSH deletes its disk. The garage release does this from version 0.2.1. When BOSH is about to delete an instance, the job's drain script runs these steps on it:
 
-1. Run `garage layout remove <node-id>` for each departing node. BOSH deletes the highest indexes first, so those are the nodes to remove.
-2. Apply the new layout with `garage layout apply --version <next-version>`.
-3. Wait for the resync to finish. `garage status` should show the remaining nodes holding every partition, and the resync queue in `garage stats` should be empty.
-4. Lower `params.instances`, set `params.garage_allow_scale_down: true`, and deploy.
-5. Remove `params.garage_allow_scale_down` again, so that the next accidental drop is caught.
+1. It waits until the cluster layout is stable and no other change is staged, and it refuses to start when a node with a role is down, or when fewer nodes than the replication factor would remain.
+2. It removes its own node from the layout and applies the next layout version.
+3. It waits until the layout history settles on that one version and the node's data directory holds no more blocks. Garage does not track how far the block migration has gone, so the empty directory is the only proof that every block has a copy elsewhere.
+4. It returns, and BOSH stops the node and deletes it with its disk.
 
-A cluster can't scale down to a single instance, and the check hook refuses that even with `params.garage_allow_scale_down`. One instance runs Garage in single-node mode, and that mode won't start on a layout that has moved past its first version, which every cluster's layout has. To run on one node, we build a new single-node deployment and copy the data across.
+BOSH deletes the departing instances one at a time, and each one that held data took about eleven minutes in our tests, because Garage holds on to a block for ten minutes after its references move before it hands the block to another node. The drain waits up to `garage.drain.delete_wait_secs`, which defaults to an hour. When blocks are still left at that point, the drain fails, BOSH stops the deploy, and the node keeps its disk. We deploy again to keep waiting. We never deploy with `--skip-drain` while a departing node still holds blocks, because that deletes the disk without moving its data.
 
-The remaining nodes must still number at least `garage_replication_factor`, or the check hook refuses the deploy for that reason instead.
+The check hook allows a scale-down only when the drain can do this work, so it refuses one in three cases:
+
+- The last deploy ran a garage release older than 0.2.1, or exodus does not record the release, because the drain that runs on a deleted instance comes from the release that is already deployed. We first deploy this kit with the instance count unchanged, which upgrades the release, and then we lower the count in a second deploy.
+
+- The deploy updates instances in parallel, through the `upgrade-all-at-once` feature or an `update` block with `max_in_flight` above 1 or `serial: false`. BOSH deletes as many instances at once as it updates, and two nodes that drain together can both leave the cluster before either one's data has moved.
+
+- The remaining nodes would number fewer than the replication factor. Garage needs one node per copy, and it cannot lower the factor, so we move the data to a smaller cluster instead.
+
+The check hook reads the environment file, so it cannot see the `--max-in-flight` option of `genesis deploy`. We never pass that option above 1 on a deploy that lowers the instance count. Each drain checks for a concurrent layout change before it applies its own, but those checks only narrow the window, and the release README calls a parallel scale-down unsafe.
+
+When a departing node is down, its drain refuses, because it cannot tell whether the node still holds data. With a factor of 2 or more, the other nodes still hold copies of everything on it. We run `garage layout remove <node-id>` and `garage layout apply --version <next-version>` on a live node. The dead node never acknowledges the new version, so we also run `garage layout skip-dead-nodes --version <next-version>`, wait until `garage layout history` reports a stable state, and then deploy with `--skip-drain garage`. With a factor of 1, the objects on a dead node exist nowhere else, so we bring the node back before we remove it. That option skips the drain of every garage instance in the deploy, so we use it only when the dead node is the only one leaving and every remaining node is up.
+
+An environment with a factor of 1 can scale all the way down to one instance, and the remaining node then runs as a one-node cluster. It keeps its layout, and the post-deploy script still imports the root key and creates the default bucket. A cluster with a larger factor can't shrink below that many nodes, so to run on one node it moves its data to a new single-node deployment.
+
+For a cluster on an older garage release, we can still remove nodes by hand before we deploy. We run `garage layout remove <node-id>` for each departing node and then `garage layout apply --version <next-version>`. We wait until `garage layout history` shows a single live version and the data directory of each departing node, `/var/vcap/store/garage/data` by default, holds no block files. Block files are named by their 64-character hash, with a `.zst` suffix when they are compressed. If blocks are still left after the layout has been stable for a while, `garage repair --yes blocks` on that node queues them for another pass. Then we lower the count, set `params.garage_allow_scale_down: true`, and deploy, and afterwards we remove that param again, so that the next accidental drop is caught. The param does not excuse a parallel update or a drop below the factor.
+
+Deleting the whole deployment with `bosh delete-deployment` needs no `--force`. The drain sees that every instance is going away and does not move data.
+
+## Moving Data to a New Cluster
+
+Garage cannot change the replication factor of a cluster, and a cluster cannot shrink below its factor. For either change we deploy a second environment with the shape we want, copy every bucket across with an S3 tool, and retire the old environment. We use rclone here, and any S3 client that can copy and compare buckets will do.
+
+1. Create the new environment file with the new instance count and factor, and deploy it. It gets its own credentials, its own default bucket, and its own static IPs.
+2. Configure an rclone remote for each environment. The access key id is `GK` followed by `credentials:access_key` in each environment's vault, the secret is `credentials:secret_key`, the provider is `Other`, the region is `garage`, and the endpoint is `http://<first-node-ip>:3900`.
+3. Create any other buckets in the new environment, then copy each bucket with `rclone sync old:<bucket> new:<bucket>`.
+4. Check each copy with `rclone check old:<bucket> new:<bucket>`, which compares every object's size and hash, and repeat the sync until the check reports no differences.
+5. Stop writes to the old environment, run the sync and the check one last time, and point clients at the new environment.
+6. Delete the old deployment with `bosh delete-deployment` and remove its secrets from vault.
 
 ## Manual Layout Management
 
@@ -252,7 +282,7 @@ IaaS overlays (`azure`, `stackit`) are applied automatically by the blueprint ho
 | `garage_layout_manual` | `false` | Skip auto cluster layout bootstrap |
 | `garage_replication_factor` | `3` for three or more nodes, otherwise the node count | Copies of each object, which we settle before the first deploy and never change afterwards |
 | `garage_allow_rf1` | `false` | Accepts a replication factor of 1 on more than one node, where losing one disk loses data |
-| `garage_allow_scale_down` | `false` | Accepts a lower instance count, after the departing nodes have left the layout and the resync has finished |
+| `garage_allow_scale_down` | `false` | Accepts a lower instance count when the last deploy ran a garage release older than 0.2.1, after the departing nodes have left the layout by hand and their data directories hold no blocks |
 | `ips` | (from the network's static range) | Static IPs for the Garage nodes. Under `ocfp` they come from the subnet's `garage_ip` reserved IPs |
 | `stemcell_os` | `ubuntu-noble` | Stemcell OS, which the `resolute` feature sets to `ubuntu-resolute` |
 | `stemcell_version` | `latest` | Stemcell version |

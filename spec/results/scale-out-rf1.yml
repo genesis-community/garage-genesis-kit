@@ -1,0 +1,125 @@
+exodus:
+  bosh: scale-out-rf1
+  ca: <!{meta.vault}/certs/ca:certificate!>
+  cluster: true
+  cluster_size: 3
+  domain: garage.bosh
+  features: cluster
+  garage_release: 0.2.1
+  iaas: null
+  instances: 3
+  ips:
+  - 10.99.1.16
+  - 10.99.1.17
+  - 10.99.1.18
+  is_director: false
+  replication_factor: 1
+  s3_api_url: http://10.99.1.16:3900
+  scale: null
+  services: s3
+  use_create_env: false
+instance_groups:
+- azs:
+  - z1
+  - z2
+  - z3
+  env:
+    persistent_disk_fs: xfs
+  instances: 3
+  jobs:
+  - consumes:
+      garage-rpc:
+        from: garage-rpc
+    name: garage
+    properties:
+      garage:
+        access_key: GK<!{meta.vault}/credentials:access_key!>
+        admin_port: 3903
+        admin_token: <!{meta.vault}/credentials:admin_token!>
+        block_size: 1048576
+        bpm:
+          open_files: 65536
+        compression_level: 1
+        consistency_mode: consistent
+        data_dir: /var/vcap/store/garage/data
+        db_engine: lmdb
+        default_bucket: garage
+        layout:
+          capacity: 1T
+          manual: false
+        log_level: info
+        metadata_dir: /var/vcap/store/garage/meta
+        metadata_fsync: false
+        replication_factor: 1
+        rpc_port: 3901
+        rpc_secret: <!{meta.vault}/credentials:rpc_secret!>
+        s3_port: 3900
+        s3_region: garage
+        s3_root_domain: ""
+        secret_key: <!{meta.vault}/credentials:secret_key!>
+    provides:
+      garage-rpc:
+        as: garage-rpc
+    release: garage
+  - name: bpm
+    release: bpm
+  name: garage
+  networks:
+  - name: garage
+    static_ips:
+    - 10.99.1.16
+    - 10.99.1.17
+    - 10.99.1.18
+  persistent_disk_type: default
+  stemcell: default
+  vm_type: default
+- azs:
+  - z1
+  - z2
+  - z3
+  instances: 1
+  jobs:
+  - consumes:
+      garage-rpc:
+        from: garage-rpc
+    name: smoke-tests
+    properties:
+      garage:
+        access_key: GK<!{meta.vault}/credentials:access_key!>
+        default_bucket: garage
+        s3_port: 3900
+        s3_region: garage
+        secret_key: <!{meta.vault}/credentials:secret_key!>
+      smoke_tests:
+        timeout_secs: 30
+    release: garage
+  lifecycle: errand
+  name: smoke-tests
+  networks:
+  - name: garage
+  stemcell: default
+  vm_type: default
+name: scale-out-rf1-garage
+releases:
+- name: garage
+  sha1: 3419f9ee5b645960823f27010457cf331afc2b33
+  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.1/garage-0.2.1.tgz
+  version: 0.2.1
+- name: bpm
+  sha1: sha256:51f2eab4b59939db733beb8f7905e461a732cc29d85e54f151f576cd5bf0c414
+  url: https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.22
+  version: 1.4.22
+- name: bosh-dns-aliases
+  sha1: sha256:27ef8965dc4f1633479613743e782566e3b7fba5d28dad3d50488c2919eac0da
+  url: https://bosh.io/d/github.com/cloudfoundry/bosh-dns-aliases-release?v=0.0.4
+  version: 0.0.4
+stemcells:
+- alias: default
+  os: ubuntu-noble
+  version: latest
+update:
+  canaries: 1
+  canary_watch_time: 30000-600000
+  max_in_flight: 1
+  serial: true
+  update_watch_time: 30000-600000

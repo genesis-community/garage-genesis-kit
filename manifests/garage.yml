@@ -20,11 +20,12 @@ exodus:
   s3_api_url: (( concat "http://" instance_groups.garage.networks[0].static_ips[0] ":3900" ))
   ca:         (( vault meta.vault "/certs/ca:certificate" ))
   cluster:    false
-  # The check hook compares the next deploy against these two, because
-  # Garage cannot change its replication factor and loses data when nodes
-  # are deleted before the layout has moved their partitions elsewhere.
+  # The check hook compares the next deploy against these three, because
+  # Garage cannot change its replication factor, and only a garage release
+  # whose drain moves a deleted node's data makes a scale-down safe.
   replication_factor: (( grab instance_groups.garage.jobs.garage.properties.garage.replication_factor ))
   instances:          (( grab instance_groups.garage.instances ))
+  garage_release:     (( grab releases.garage.version ))
 
 instance_groups:
 - name: garage

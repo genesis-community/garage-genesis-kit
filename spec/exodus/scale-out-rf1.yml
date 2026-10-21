@@ -1,0 +1,8 @@
+---
+# The last deploy ran a single node.
+garage:
+  s3_api_url:         http://10.99.1.10:3900
+  ips:                10.99.1.10
+  replication_factor: "1"
+  instances:          "1"
+  garage_release:     "0.2.1"

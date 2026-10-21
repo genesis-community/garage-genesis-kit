@@ -105,12 +105,14 @@ sub check_route_registrar {
 # }}}
 
 # check_cluster_shape - Refuse unsafe replication factors and shrinking {{{
-# Garage keeps replication_factor copies of each object, refuses to start a
-# node whose factor differs from the one in its stored layout, and loses the
-# copies on any node BOSH deletes before the layout has moved them.  The
-# last deploy's exodus data holds the factor and the instance count it
-# used, so the next deploy is compared against them.  A first deploy has no
-# exodus data and only gets the checks that need none.
+# Garage keeps replication_factor copies of each object and refuses to start
+# a node whose factor differs from the one in its stored layout.  From
+# garage release 0.2.1, drain moves the data off a node BOSH deletes, so a
+# scale-down is safe when the last deploy ran that release, the cluster
+# stays at or above its factor, and BOSH deletes one node at a time.  The
+# last deploy's exodus data holds the factor, the instance count, and the
+# garage release it used, so the next deploy is compared against them.  A
+# first deploy has no exodus data and only gets the checks that need none.
 sub check_cluster_shape {
 	my ($self) = @_;
 	$self->start_check('garage cluster shape');
@@ -125,6 +127,7 @@ sub check_cluster_shape {
 		previous         => $previous,
 		allow_rf1        => scalar($self->env->lookup('params.garage_allow_rf1', 0)),
 		allow_scale_down => scalar($self->env->lookup('params.garage_allow_scale_down', 0)),
+		parallel         => $self->_garage_parallel_update,
 	);
 	if (@errors) {
 		info("[[    - >>#R{%s}", $_) for @errors;

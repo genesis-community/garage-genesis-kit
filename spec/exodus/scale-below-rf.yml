@@ -1,0 +1,8 @@
+---
+# The last deploy ran three nodes with three copies of each object.
+garage:
+  s3_api_url:         http://10.99.1.10:3900
+  ips:                10.99.1.10,10.99.1.11,10.99.1.12
+  replication_factor: "3"
+  instances:          "3"
+  garage_release:     "0.2.1"

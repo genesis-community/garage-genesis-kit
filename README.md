@@ -22,14 +22,14 @@ graph LR
 
 | Feature | Description |
 |---------|-------------|
-| `cluster` | Scale to 3+ nodes with BOSH link-based peer discovery and auto layout bootstrap |
+| `cluster` | Scale to 3+ nodes with BOSH link-based peer discovery and auto layout bootstrap, and scale back down with each departing node's data moved first (see the MANUAL) |
 | `route-registrar` | Register `s3-api.<system-domain>` into CF gorouter via NATS mTLS |
 | `ocfp` | Derive network, VM type, and disk type names from OCFP naming conventions |
 | `scale-small` | Use small VM type and disk type |
 | `scale-medium` | Use medium VM type and disk type |
 | `scale-large` | Use large VM type and disk type |
 | `upgrade-serial` | Rolling upgrade: one instance at a time, canary first |
-| `upgrade-all-at-once` | Upgrade all instances simultaneously |
+| `upgrade-all-at-once` | Upgrade all instances simultaneously, which the check hook refuses for a deploy that removes nodes |
 | `resolute` | Deploy on an Ubuntu Resolute stemcell with bpm 1.4.41 |
 
 ## Quick Start

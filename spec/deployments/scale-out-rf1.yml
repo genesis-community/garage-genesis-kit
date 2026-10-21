@@ -1,0 +1,14 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+
+genesis:
+  env:      scale-out-rf1
+  entomb:   false
+
+params:
+  garage_replication_factor: 1
+  garage_allow_rf1:          true

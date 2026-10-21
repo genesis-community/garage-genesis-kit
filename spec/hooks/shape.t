@@ -62,6 +62,7 @@ sub shape {
 		previous         => $hook->_garage_previous_shape($explicit ? $rf : undef),
 		allow_rf1        => scalar($hook->env->lookup('params.garage_allow_rf1', 0)),
 		allow_scale_down => scalar($hook->env->lookup('params.garage_allow_scale_down', 0)),
+		parallel         => $hook->_garage_parallel_update,
 	);
 }
 
@@ -106,17 +107,61 @@ like(join(' ', shape(features => ['cluster'], exodus => {replication_factor => '
 	qr/would change from 1 to 3/, 'a new default factor on an rf=1 cluster is refused');
 is_deeply([shape(features => ['cluster'], params => {instances => 5}, exodus => {%three_rf3})], [], 'scaling up passes');
 my @down = shape(features => ['cluster'], params => {instances => 2}, exodus => {replication_factor => '2', instances => '3'});
-like(join(' ', @down), qr/would drop from 3 to 2/, 'scaling down is refused');
-like(join(' ', @down), qr/garage layout remove.*garage\s+layout apply.*resync.*lower instances/s,
-	'the refusal explains the scale-down procedure in order');
+like(join(' ', @down), qr/would drop from 3 to 2/, 'scaling down is refused when the last deploy recorded no garage release');
+like(join(' ', @down), qr/a garage release this kit did not record/, 'the refusal says the release is unknown');
+like(join(' ', @down), qr/instances still at 3.*garage 0\.2\.1 or later.*garage\s+layout remove.*garage\s+layout\s+history.*holds no\s+block files.*garage_allow_scale_down/s,
+	'the refusal explains both ways forward in order');
+like(join(' ', shape(features => ['cluster'], params => {instances => 2},
+	exodus => {replication_factor => '2', instances => '3', garage_release => '0.2.0'})),
+	qr/last deploy ran garage release 0\.2\.0, whose drain does not move/, 'scaling down from release 0.2.0 is refused');
 is_deeply([shape(features => ['cluster'], params => {instances => 2, garage_allow_scale_down => 1},
-	exodus => {replication_factor => '2', instances => '3'})], [], 'garage_allow_scale_down accepts a scale down');
-like(join(' ', shape(features => ['cluster'], params => {instances => 2, garage_allow_scale_down => 1},
-	exodus => {%three_rf3})), qr/would change from 3 to 2/, 'garage_allow_scale_down does not excuse a change of factor');
-like(join(' ', shape(features => ['cluster'], params => {instances => 1, garage_replication_factor => 1, garage_allow_scale_down => 1},
-	exodus => {replication_factor => '1', instances => '3'})), qr/would drop from 3 to 1\..*does not excuse this/, 'a cluster cannot scale down to a single node, even with garage_allow_scale_down');
-is(scalar(shape(features => ['cluster'], params => {instances => 1, garage_replication_factor => 1},
-	exodus => {replication_factor => '1', instances => '3'})), 1, 'scaling a cluster to one node reports only the single-node refusal');
+	exodus => {replication_factor => '2', instances => '3'})], [], 'garage_allow_scale_down accepts a scale down from an older release');
+my %rf2_drains = (replication_factor => '2', instances => '3', garage_release => '0.2.1');
+is_deeply([shape(features => ['cluster'], params => {instances => 2}, exodus => {%rf2_drains})], [],
+	'scaling down passes once the last deploy ran garage 0.2.1');
+is_deeply([shape(features => ['cluster'], params => {instances => 2}, exodus => {%rf2_drains, garage_release => '0.2.1+dev.3'})], [],
+	'a dev build of 0.2.1 counts as 0.2.1');
+is_deeply([shape(features => ['cluster'], params => {instances => 3}, exodus => {replication_factor => '3', instances => '5', garage_release => '0.3.0'})], [],
+	'a later release scales five nodes down to three');
+like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_drains})),
+	qr/would drop from 3 to 2 while the deploy updates instances in parallel/, 'a parallel scale-down is refused');
+like(join(' ', shape(features => ['cluster'], params => {instances => 2, 'update.max_in_flight' => '100%'}, exodus => {%rf2_drains})),
+	qr/updates instances in parallel/, 'an update block with max_in_flight above 1 is refused');
+like(join(' ', shape(features => ['cluster'], params => {instances => 2, 'update.serial' => 'false'}, exodus => {%rf2_drains})),
+	qr/updates instances in parallel/, 'an update block with serial false is refused');
+is_deeply([shape(features => ['cluster'], params => {instances => 2, 'update.max_in_flight' => 1}, exodus => {%rf2_drains})], [],
+	'max_in_flight of 1 is not parallel');
+like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2, garage_allow_scale_down => 1},
+	exodus => {replication_factor => '2', instances => '3'})), qr/updates instances in parallel/,
+	'garage_allow_scale_down does not excuse a parallel scale-down');
+is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 5}, exodus => {%three_rf3})], [],
+	'a parallel deploy that does not shrink passes');
+my @below = shape(features => ['cluster'], params => {instances => 2}, exodus => {%three_rf3, garage_release => '0.2.1'});
+is(scalar(@below), 1, 'shrinking below the factor reports one refusal');
+like($below[0], qr/would drop from 3 to 2, but the cluster keeps 3 copies.*cannot shrink below 3 nodes.*rclone sync.*Moving Data to a New Cluster/s,
+	'shrinking below the factor is refused with the migration steps');
+like(join(' ', shape(features => ['cluster'], params => {instances => 2, garage_allow_scale_down => 1}, exodus => {%three_rf3})),
+	qr/cannot shrink below 3 nodes/, 'garage_allow_scale_down does not excuse shrinking below the factor');
+like(join(' ', shape(params => {instances => 1, garage_replication_factor => 3}, exodus => {%three_rf3, garage_release => '0.2.1'})),
+	qr/cannot shrink below 3 nodes/, 'an rf=3 cluster cannot become a single node');
+is_deeply([shape(features => ['cluster'], params => {instances => 1, garage_replication_factor => 1},
+	exodus => {replication_factor => '1', instances => '3', garage_release => '0.2.1'})], [],
+	'an rf=1 cluster scales down to one node once the last deploy ran garage 0.2.1');
+like(join(' ', shape(features => ['cluster'], params => {instances => 1, garage_replication_factor => 1},
+	exodus => {replication_factor => '1', instances => '3'})), qr/would drop from 3 to 1, but the last deploy ran a garage release/,
+	'an rf=1 cluster on an unknown release cannot scale down to one node');
+like(join(' ', shape(features => ['cluster'], params => {instances => 4, garage_replication_factor => 2, garage_allow_scale_down => 1},
+	exodus => {%three_rf3, instances => '5', garage_release => '0.2.1'})), qr/would change from 3 to 2/, 'garage_allow_scale_down does not excuse a change of factor');
+
+# }}}
+# scaling a single node out {{{
+my %single = (replication_factor => '1', instances => '1', garage_release => '0.2.1');
+my $grow = join(' ', shape(features => ['cluster'], exodus => {%single}));
+like($grow, qr/would change from 1 to 3\.\s+A single node keeps one copy/, 'growing one node with the default factor is refused');
+like($grow, qr/garage_replication_factor: 1 and params\.garage_allow_rf1: true.*Moving Data to a New Cluster/s,
+	'the refusal names both ways forward');
+is_deeply([shape(features => ['cluster'], params => {garage_replication_factor => 1, garage_allow_rf1 => 1}, exodus => {%single})], [],
+	'one node grows into an rf=1 cluster when the environment says so');
 
 # }}}
 # exodus data from an older kit {{{
@@ -131,6 +176,7 @@ is_deeply([shape(features => ['cluster'], params => {garage_replication_factor =
 	exodus => {%legacy})], [], 'an older rf=1 cluster passes once the environment says so');
 like(join(' ', shape(features => ['cluster'], params => {instances => 2, garage_replication_factor => 2},
 	exodus => {%legacy})), qr/would drop from 3 to 2/, 'older exodus data still catches a scale down');
+is(hook(exodus => {%legacy})->_garage_previous_shape(undef)->{release}, undef, 'older exodus data records no release');
 
 # }}}
 

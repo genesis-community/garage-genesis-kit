@@ -111,6 +111,38 @@ var _ = Describe("Garage Kit", func() {
 			CPI:         "aws",
 			Exodus:      "scale-down-allowed",
 		})
+		Test(Environment{
+			Name:        "scale-down-drains",
+			CloudConfig: "aws",
+			CPI:         "aws",
+			Exodus:      "scale-down-drains",
+		})
+		Test(Environment{
+			Name:           "scale-down-parallel",
+			CloudConfig:    "aws",
+			CPI:            "aws",
+			Exodus:         "scale-down-parallel",
+			OutputMatchers: OutputMatchers{GenesisCheck: refused("updates instances in parallel")},
+		})
+		Test(Environment{
+			Name:           "scale-below-rf",
+			CloudConfig:    "aws",
+			CPI:            "aws",
+			Exodus:         "scale-below-rf",
+			OutputMatchers: OutputMatchers{GenesisCheck: refused("cannot shrink below 3 nodes")},
+		})
+		Test(Environment{
+			Name:        "scale-to-one",
+			CloudConfig: "aws",
+			CPI:         "aws",
+			Exodus:      "scale-to-one",
+		})
+		Test(Environment{
+			Name:        "scale-out-rf1",
+			CloudConfig: "aws",
+			CPI:         "aws",
+			Exodus:      "scale-out-rf1",
+		})
 	})
 
 	Describe("ocfp", func() {
