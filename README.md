@@ -70,7 +70,7 @@ Run addons with `genesis <env> do <addon>`.
 
 ## Cluster Bootstrap
 
-On first deploy, the post-deploy hook on instance index 0 calls `garage layout assign` for each unassigned node, then `garage layout apply`. This is idempotent — subsequent deploys skip the bootstrap because no nodes are in the `NO ROLE ASSIGNED` state.
+On first deploy, the garage job's post-deploy script on the instance with the highest index calls `garage layout assign` for each unassigned node, then `garage layout apply`. This is idempotent — subsequent deploys skip the bootstrap because no nodes are in the `NO ROLE ASSIGNED` state.
 
 Set `params.garage_layout_manual: true` to opt out of automatic bootstrap and manage cluster layout manually via the `mc` addon.
 

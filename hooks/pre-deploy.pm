@@ -32,7 +32,7 @@ sub perform {
   info("  deployment: #C{%s}", $env->deployment_name);
   info("");
   info("Genesis manages credentials - no pre-deploy credential checks needed.");
-  info("Cluster layout bootstrap runs automatically on index 0 after the first deploy.");
+  info("Cluster layout bootstrap runs automatically on the last instance after the first deploy.");
   info("");
 
   return $self->done(1);

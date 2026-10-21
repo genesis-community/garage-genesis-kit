@@ -8,7 +8,7 @@ BEGIN {push @INC, $ENV{GENESIS_LIB} ? $ENV{GENESIS_LIB} : $ENV{HOME}.'/.genesis/
 
 use parent qw(Genesis::Hook::PostDeploy);
 
-use Genesis qw/info run/;
+use Genesis qw/info/;
 
 # init - Initialize the hook {{{
 sub init {
@@ -34,10 +34,17 @@ sub perform {
 
   my $env = $self->env;
 
-  # Read exodus values written by spruce during the deploy
-  my $s3_api_url = $self->_exodus_value('s3_api_url') // '(unknown)';
-  my $instances  = $self->_exodus_value('instances')  // 1;
-  my $cluster    = $self->_exodus_value('cluster')    // 0;
+  # Read the exodus data this deploy just exported.  exodus_lookup returns
+  # a value and key pair in list context, so each call is made scalar.
+  my $s3_api_url = scalar($env->exodus_lookup('s3_api_url', undef)) // '(unknown)';
+  my $cluster    = scalar($env->exodus_lookup('cluster', undef)) ? 1 : 0;
+  my $ips        = scalar($env->exodus_lookup('ips', undef));
+  # Genesis may store the list as one comma-separated string.
+  $ips = [split /\s*,\s*/, $ips] if defined($ips) && !ref($ips);
+  $ips = [] unless ref($ips) eq 'ARRAY';
+  my $instances  = $cluster
+    ? scalar($env->exodus_lookup('cluster_size', undef)) // scalar(@$ips) || 1
+    : 1;
 
   info("  S3 API URL:   #G{%s}", $s3_api_url);
   info("  Instances:    #C{%d}", $instances);
@@ -45,10 +52,14 @@ sub perform {
   info("");
 
   # Health probe on each instance via bosh ssh + curl admin endpoint
-  # The BOSH post-deploy.erb hook on index 0 handles cluster layout bootstrap.
-  # This hook provides operator-visible status only; failures are non-fatal.
+  # The garage job's own post-deploy script handles the cluster layout
+  # bootstrap.  This hook provides operator-visible status only; failures are
+  # non-fatal.  A single node binds the admin API to loopback, and a cluster
+  # binds it to each instance's IP so that new nodes can reach it.
+  my $admin_port = scalar($env->lookup('params.garage_admin_port', 3903));
   for my $idx (0 .. $instances - 1) {
-    $self->_probe_node($idx);
+    my $host = $cluster ? $ips->[$idx] : '127.0.0.1';
+    $self->_probe_node($idx, $host, $admin_port);
   }
 
   info("");
@@ -61,32 +72,22 @@ sub perform {
 }
 # }}}
 
-# _exodus_value - Read a single key from genesis exodus data {{{
-sub _exodus_value {
-  my ($self, $key) = @_;
-
-  my ($out, $rc) = run(
-    { stderr => 0 },
-    'safe', '-T', $ENV{GENESIS_ENVIRONMENT},
-    'get', "$ENV{GENESIS_EXODUS_MOUNT}:$key"
-  );
-  return undef unless $rc == 0 && defined $out;
-  chomp $out;
-  return $out;
-}
-# }}}
-
 # _probe_node - Curl the admin health endpoint on a specific Garage instance {{{
 sub _probe_node {
-  my ($self, $idx) = @_;
+  my ($self, $idx, $host, $admin_port) = @_;
 
   my $deployment = $self->env->deployment_name;
   my $target     = "garage/$idx";
 
   info("  Probing health of #C{$target}...");
+  unless (defined($host)) {
+    info("    #Y{[warn]} $target has no address in the exodus data - skipping its probe");
+    return;
+  }
 
-  # bosh ssh + curl admin health endpoint on loopback port 3903; non-zero is
-  # non-fatal — cluster may still be converging or layout may not yet be applied.
+  # bosh ssh + curl admin health endpoint; /health answers 503 until the node
+  # can serve reads and writes, so curl fails on it.  Non-zero is non-fatal,
+  # because the cluster may still be converging.
   #
   # Route through $self->env->bosh->execute rather than a bare `bosh -e <alias>`:
   # execute() sets BOSH_ENVIRONMENT to the director URL (plus CA/client creds),
@@ -96,7 +97,7 @@ sub _probe_node {
   my ($out, $rc) = $self->env->bosh->execute(
     { stderr => 0, deployment => $deployment },
     'ssh', $target,
-    '--command', 'curl -sk --max-time 5 http://127.0.0.1:3903/health',
+    '--command', "curl -sf --max-time 5 -o /dev/null http://$host:$admin_port/health",
   );
 
   if ($rc == 0) {
