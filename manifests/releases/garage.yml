@@ -1,12 +1,6 @@
 ---
-# garage 0.2.0+dev.1 is a dev release, built from garage-boshrelease commit
-# b2cfa51 (Garage v2.3.0) and not published anywhere yet, so it carries no
-# url or sha1.  Upload it to the director before deploying:
-#
-#   genesis <env> bosh upload-release garage-0.2.0+dev.1.tgz
-#
-# When the final release is cut, replace this version with the final
-# version and add its url and sha1 here, so Genesis uploads it by itself.
 releases:
 - name:    garage
-  version: 0.2.0+dev.1
+  version: 0.2.0
+  url:     https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.0/garage-0.2.0.tgz
+  sha1:    05c5bdcedb29924e2babd83104bf3326dd023dc9

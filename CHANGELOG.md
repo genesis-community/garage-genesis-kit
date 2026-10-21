@@ -25,7 +25,8 @@
 - The check hook looks up each cloud config param first, and it falls back to the name derived from ocfp only when the param is unset.
 - Leave the stemcell check to Genesis, so that `--no-stemcells` is honoured and the check no longer runs twice.
 - Pin bpm to 1.4.22 on noble instead of `latest`, because bpm 1.4.31 cannot start jobs on noble.
-- Pin the garage release to the dev release 0.2.0+dev.1, which carries Garage v2.3.0 and fixes cluster bootstrap. The final release's URL and SHA1 replace this pin.
+- Pin the garage release to 0.2.0, which carries Garage v2.3.0. It fixes cluster bootstrap, tags each layout role with its BOSH instance, and replaces a recreated node's role only when that role provably belongs to the instance.
+- Refuse to scale a cluster down to a single instance, even with `params.garage_allow_scale_down`, because Garage's single-node mode won't start on a layout that has moved past its first version.
 - Require the cloud config for the blueprint, manifest, and check hooks, since the manifest takes static IPs from the cloud config network.
 - Read the default instance count from `meta.default.instances`, because graft fails `static_ips` when `instances` falls through to a literal default.
 - Rewrite the MANUAL's smoke-test section to describe the errand as it runs. The errand uses the generated root key and the default bucket, so we create no key by hand, and the vault table now lists the four keys of the `credentials` secret.

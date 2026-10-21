@@ -96,7 +96,9 @@ instance_groups:
 name: rf-exceeds-instances-garage
 releases:
 - name: garage
-  version: 0.2.0+dev.1
+  sha1: 05c5bdcedb29924e2babd83104bf3326dd023dc9
+  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.0/garage-0.2.0.tgz
+  version: 0.2.0
 - name: bpm
   sha1: sha256:51f2eab4b59939db733beb8f7905e461a732cc29d85e54f151f576cd5bf0c414
   url: https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.22

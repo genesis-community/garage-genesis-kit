@@ -140,7 +140,9 @@ instance_groups:
 name: resolute-route-registrar-garage
 releases:
 - name: garage
-  version: 0.2.0+dev.1
+  sha1: 05c5bdcedb29924e2babd83104bf3326dd023dc9
+  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.0/garage-0.2.0.tgz
+  version: 0.2.0
 - name: bpm
   sha1: sha256:7b445508d63d2171d892ba33f836087e1e519b9782f44c5fa5290323616ca8e6
   url: https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.41
