@@ -23,30 +23,44 @@ sub cmd_details {
   return
     "Regenerate the Garage rpc_secret and admin_token in Vault.\n".
     "Prompts for confirmation before rotating. Does not redeploy automatically.\n".
-    "Run `genesis deploy` after rotation to apply the new credentials.";
+    "Apply the new values with a full stop, then a deploy with every node in\n".
+    "flight, because nodes holding different RPC secrets cannot talk.";
 }
 # }}}
+
+# The secrets this addon rotates, with the number of hex characters each has.
+# They match the definitions in kit.yml.
+my @ROTATED = (
+  [rpc_secret  => 64],
+  [admin_token => 32],
+);
 
 # perform - Main hook execution {{{
 sub perform {
   my ($self) = @_;
   return 1 if $self->completed;
 
-  my $env        = $self->env;
-  my $env_name   = $env->name;
-  my $vault_path = $env->vault_path_prefix;
+  my $env      = $self->env;
+  my $env_name = $env->name;
 
-  my $rpc_secret_path  = "$vault_path/credentials:rpc_secret";
-  my $admin_token_path = "$vault_path/credentials:admin_token";
+  # The environment's own vault, which genesis.vault names.  Its query()
+  # runs safe with SAFE_TARGET set to that vault, so this works whatever the
+  # operator's safe targets are called, and whichever one is current.
+  my $vault = $env->vault;
+  bail("No vault is configured for #M{%s}, so its credentials cannot be rotated.", $env_name)
+    unless $vault;
+  (my $path = $env->secrets_base . 'credentials') =~ s{^/+}{};
 
   info("");
-  info("#Y{WARNING}: This will rotate Garage rpc_secret and admin_token.");
-  info("All cluster nodes must be redeployed after rotation or they will");
-  info("lose RPC connectivity (rpc_secret is a shared cluster secret).");
+  info("#Y{WARNING}: This will rotate the Garage rpc_secret and admin_token.");
+  info("Every node must restart with the new rpc_secret at the same time.  A node");
+  info("holding the new secret cannot talk to nodes holding the old one, so a");
+  info("rolling deploy stalls on its first node.  Apply the rotation with:");
   info("");
-  info("Vault paths that will be regenerated:");
-  info("  #C{%s}", $rpc_secret_path);
-  info("  #C{%s}", $admin_token_path);
+  $self->_print_procedure;
+  info("");
+  info("Vault keys that will be regenerated:");
+  info("  #C{%s:%s}", $path, $_->[0]) for @ROTATED;
   info("");
 
   # Prompt operator — abort unless confirmed
@@ -58,32 +72,73 @@ sub perform {
   bail("Credential rotation aborted by operator.") unless lc($answer) eq 'y';
 
   info("");
-  info("Rotating #C{rpc_secret} (64-char hex)...");
-  my ($rpc_new, $rpc_rc) = run(
-    { stderr => 1 },
-    'bash', '-c',
-    "openssl rand -hex 32 | safe -T $env_name set $rpc_secret_path"
-  );
-  bail("Failed to rotate rpc_secret (exit %d): %s", $rpc_rc, $rpc_new) unless $rpc_rc == 0;
-  info("  #g{[ok]} rpc_secret rotated");
-
-  info("Rotating #C{admin_token} (32-char hex)...");
-  my ($tok_new, $tok_rc) = run(
-    { stderr => 1 },
-    'bash', '-c',
-    "openssl rand -hex 16 | safe -T $env_name set $admin_token_path"
-  );
-  bail("Failed to rotate admin_token (exit %d): %s", $tok_rc, $tok_new) unless $tok_rc == 0;
-  info("  #g{[ok]} admin_token rotated");
+  for my $secret (@ROTATED) {
+    my ($key, $length) = @$secret;
+    info("Rotating #C{%s} (%d hex characters)...", $key, $length);
+    $self->_rotate($vault, $path, $key, $length);
+    info("  #g{[ok]} %s rotated", $key);
+  }
 
   info("");
-  info("Credentials rotated. Run `genesis deploy` to apply new credentials:");
-  info("  #G{genesis deploy %s}", $env_name);
+  info("Credentials rotated.  Stop the deployment, then deploy and start every node at once:");
+  $self->_print_procedure;
   info("");
-  info("#Y{Note}: All Garage nodes share rpc_secret. They will lose cluster");
-  info("         connectivity until the redeploy completes.");
+  info("#Y{Note}: The running nodes keep the old secrets until that deploy, and a");
+  info("         node that restarts before it cannot rejoin the cluster.");
 
   return $self->done(1);
+}
+# }}}
+
+# _print_procedure - the commands that apply a rotation {{{
+# A full stop first, so that no node is left running with the old secret.
+# The deploy then updates every node at once with no canary, and a start
+# with every node in flight brings them up together, because bosh deploy
+# leaves stopped instances stopped.
+sub _print_procedure {
+  my ($self) = @_;
+  my $env_name = $self->env->name;
+  my $count = scalar($self->env->exodus_lookup('instances', undef));
+  $count = '<instances>' unless defined($count) && $count =~ /^[1-9][0-9]*$/;
+  info("  #G{genesis %s bosh stop}", $env_name);
+  info("  #G{genesis deploy %s --canaries=0 --max-in-flight=%s}", $env_name, $count);
+  info("  #G{genesis %s bosh start --canaries=0 --max-in-flight=100%%}", $env_name);
+  return;
+}
+# }}}
+
+# _rotate - generate a new value for one key and confirm Vault holds it {{{
+# safe gen takes its arguments as a list, so no value or path passes through
+# a shell.  Reads go through Service::Vault::get, which redacts the output,
+# and no value is ever printed.
+sub _rotate {
+  my ($self, $vault, $path, $key, $length) = @_;
+
+  my $before = $vault->get($path, $key);
+
+  my (undef, $rc, $err) = $vault->query(
+    { stderr => 0, redact_output => 1 },
+    'gen', '-l', $length, '--policy', '0-9a-f', $path, $key
+  );
+  bail(
+    "Failed to rotate #C{%s:%s} (safe exited %d): %s",
+    $path, $key, $rc, ($err // '') =~ s/\s+$//r || 'no error output'
+  ) unless $rc == 0;
+
+  my $after = $vault->get($path, $key);
+  bail(
+    "safe reported success, but #C{%s:%s} could not be read back afterwards.",
+    $path, $key
+  ) unless defined($after) && $after ne '';
+  bail(
+    "safe reported success, but #C{%s:%s} does not hold %d hex characters.",
+    $path, $key, $length
+  ) unless $after =~ /^[0-9a-f]{$length}$/;
+  bail(
+    "safe reported success, but #C{%s:%s} still holds its old value.",
+    $path, $key
+  ) if defined($before) && $before eq $after;
+  return 1;
 }
 # }}}
 
