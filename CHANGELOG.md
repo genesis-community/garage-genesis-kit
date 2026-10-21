@@ -10,9 +10,20 @@
 - Add Proxmox VE (`pve`) support. The kit lists `pve` in `kit.yml` `supports`, and `cloud-config.pm` carries `pve` branches on the network, every vm_type, and every disk_type (bridge, cpu/ram/disk, and persistent disk storage/format, all overridable via `bosh-configs.cpi.*`).
 - Add the service-named cloud-config entries `vm_type_definition('garage')` and `disk_type_definition('garage')`, which the ocfp manifest references and which resolve as `<cloud>vm-garage` / `<cloud>disk-garage`.
 - Make `cloud-config.pm` emit one BOSH CPI per AZ so the deploy-time stemcell check resolves against the named per-AZ CPI.
+- Add a check that refuses unsafe cluster shapes. It refuses a replication factor of 1 on more than one node unless `params.garage_allow_rf1` is true, and it refuses a factor larger than the instance count.
+- Export `replication_factor` and `instances` in exodus for every deployment shape. The check hook compares each deploy against them, refuses any change to the replication factor, and refuses a lower instance count unless `params.garage_allow_scale_down` is true. The refusal explains how to drain the departing nodes first. A first deploy passes.
+- When the `resolute` feature is on, the pre-deploy hook reads the merged manifest and refuses any stemcell whose os is not `ubuntu-resolute`, along with a bpm release older than 1.4.41.
+- Add a MANUAL section on scaling down, and parameter rows for `garage_allow_rf1` and `garage_allow_scale_down`.
+- Add Perl tests under `spec/hooks/` for the cluster shape rules, the credential rotation addon, and the resolute pre-deploy check, along with refusal specs for each shape the check hook rejects.
 
 ### Changed
 
+- Default `garage_replication_factor` to 3 for three or more nodes and to the node count for a smaller deployment, including under `ocfp` without the `cluster` feature. It used to default to 1 everywhere, which left a cluster one disk away from data loss.
+- Mark `access_key`, `secret_key`, and `rpc_secret` as fixed in `kit.yml`, so `genesis rotate-secrets` leaves them alone. Garage imports the root key only once, and a changed `rpc_secret` must reach every node at the same moment.
+- Rewrite the MANUAL's credential rotation section. A rotation is applied with a full stop, then a deploy and a start with every node in flight, instead of a serial redeploy. The MANUAL also says that a wiped node returns with a new identity, which the release's post-deploy swaps in with `garage layout assign --replace`.
+- The post-deploy hook probes each node at the address the release binds, which is loopback on a single node and the instance IP on a cluster. It maps each address to its instance from the BOSH instance list.
+- The check hook looks up each cloud config param first, and it falls back to the name derived from ocfp only when the param is unset.
+- Leave the stemcell check to Genesis, so that `--no-stemcells` is honoured and the check no longer runs twice.
 - Pin bpm to 1.4.22 on noble instead of `latest`, because bpm 1.4.31 cannot start jobs on noble.
 - Pin the garage release to the dev release 0.2.0+dev.1, which carries Garage v2.3.0 and fixes cluster bootstrap. The final release's URL and SHA1 replace this pin.
 - Require the cloud config for the blueprint, manifest, and check hooks, since the manifest takes static IPs from the cloud config network.
@@ -30,6 +41,10 @@
 - The static IP fragment merges after every feature fragment. Before this, `cluster` replaced `params.ips` with the cloud config's static range, and under `ocfp` it appended a second network to the garage instance group.
 - `check.pm` checks the cloud config through the Genesis `has_entry` API. It used to call a method that does not exist and exited 255.
 - `check.pm` stemcell probe handles both hashref and `os@version` string forms returned by `bosh stemcells` across Genesis versions (was crashing on the string form).
+- The `reset-credentials` addon rotates for real. It runs `safe gen` with list arguments against the environment's own vault, reads each key back to confirm the new value, and never prints a value. Before this, it called a Genesis method that does not exist and died before it reached safe.
+- The `info` hook no longer dies on the same missing method, and it now shows the instance count and the replication factor.
+- The route-registrar check reads the CF exodus data through `exodus_lookup`. It used to call a function that Genesis does not have, so the check always failed.
+- The post-deploy hook treats a missing deploy exit code as a failure, instead of reporting success.
 - In `manifests/ocfp.yml`, `garage_vm_type` / `garage_disk_type` now reference the `vm-` / `disk-` prefixed names the cloud-config helpers actually emit.
 - `post-deploy.pm` health probe runs through `$self->env->bosh->execute` (director URL) instead of `bosh -e <alias>`, which hangs when a public DNS record shadows the BOSH alias.
 

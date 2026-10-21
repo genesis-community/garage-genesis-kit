@@ -85,7 +85,23 @@ The post-deploy auto-bootstrap runs on the last instance, which is the one BOSH 
 
 Each new node joins the cluster in its post-start script. It reads the first instance's node id from the admin API and connects to it over RPC. For that reason a cluster binds the admin API to each instance's own IP rather than to loopback, and it requires the admin token on `/metrics` as well. A single node keeps the admin API on `127.0.0.1`. The `garage.admin_bind_address` release property overrides either choice.
 
-The kit defaults `garage_replication_factor` to 1, even for a cluster, which means each object lives on only one node. Set it to 3 for a three-zone cluster before the first deploy, because Garage cannot change the replication factor of a cluster that already holds data.
+When `garage_replication_factor` is unset, the kit picks it from the number of nodes it deploys. Three or more nodes get three copies of each object, and a smaller deployment gets one copy per node. This holds under `ocfp` too, with or without the `cluster` feature. Garage cannot change the replication factor of a cluster once it has a layout, so we settle it before the first deploy.
+
+The check hook refuses a cluster shape that would lose data. It refuses a factor of 1 on more than one node, because every object would then live on a single disk, unless we set `params.garage_allow_rf1: true` to accept that risk. It also refuses a factor larger than the number of nodes, since Garage needs one node per copy.
+
+Every deploy records the replication factor and the instance count in exodus, and the check hook compares the next deploy against them. It refuses any change to the factor, because Garage will not start a node whose factor differs from the one in its stored layout. A first deploy has nothing to compare against, so it passes. An environment deployed by an older kit has no factor in exodus, and the hook assumes that kit's default of 1. For such an environment we set `params.garage_replication_factor` to the factor the cluster runs today, and we add `params.garage_allow_rf1: true` if that factor is 1.
+
+## Scaling Down
+
+The check hook refuses a deploy that lowers the instance count. BOSH deletes a departing node together with its persistent disk, and Garage loses every copy that disk holds unless the data has moved first. We scale down in this order:
+
+1. Run `garage layout remove <node-id>` for each departing node. BOSH deletes the highest indexes first, so those are the nodes to remove.
+2. Apply the new layout with `garage layout apply --version <next-version>`.
+3. Wait for the resync to finish. `garage status` should show the remaining nodes holding every partition, and the resync queue in `garage stats` should be empty.
+4. Lower `params.instances`, set `params.garage_allow_scale_down: true`, and deploy.
+5. Remove `params.garage_allow_scale_down` again, so that the next accidental drop is caught.
+
+The remaining nodes must still number at least `garage_replication_factor`, or the check hook refuses the deploy for that reason instead.
 
 ## Manual Layout Management
 
@@ -117,13 +133,19 @@ To rotate the `rpc_secret` and `admin_token`:
 genesis my-env do reset-credentials
 ```
 
-The addon prompts for confirmation (`Type 'y' to continue`), then generates new values using `openssl rand -hex` and stores them in Vault via `safe set`. After rotation, redeploy so all nodes receive the updated secrets:
+The addon asks for confirmation and then runs `safe gen` against the environment's own vault, which `genesis.vault` names, so it does not matter what our local safe target is called. It passes the arguments to safe as a list, with no shell in between, and it reads each key back to confirm that Vault now holds a new value of the right length. It never prints a value.
+
+The `access_key` and `secret_key` are not rotated. Garage imports the root key once, when the cluster first forms, so the kit marks those two keys as fixed, along with `rpc_secret`. That keeps `genesis rotate-secrets` from changing them. This addon is the only way to rotate `rpc_secret`.
+
+Nodes that hold different RPC secrets cannot talk to each other, so a rolling deploy would stall on its first node, and `upgrade-serial` makes that worse. We apply a rotation with a full stop instead, then a deploy that updates every node at once, and then a start of every node together:
 
 ```bash
-genesis deploy my-env
+genesis my-env bosh stop
+genesis deploy my-env --canaries=0 --max-in-flight=<instances>
+genesis my-env bosh start --canaries=0 --max-in-flight=100%
 ```
 
-Use the `upgrade-serial` feature to roll the redeploy safely — one node at a time — so the cluster remains available throughout.
+The addon prints these commands with the instance count filled in. The final start is needed because a deploy leaves stopped instances stopped. The cluster is unavailable from the stop until the start, so we plan the rotation for a maintenance window.
 
 ## Troubleshooting
 
@@ -157,7 +179,7 @@ To recover:
 3. Remove the LMDB lock file only (not the data): `rm /var/vcap/store/garage/meta/lock.mdb`.
 4. Restart: `bosh -d my-env start garage/<index>`.
 
-If data is corrupted beyond recovery, remove the metadata directory entirely and allow Garage to rebuild it from peers (requires at least `replication_factor` healthy peers).
+If the metadata is corrupted beyond recovery, we can remove the metadata directory and let the node rebuild from its peers, which needs a replication factor of 2 or more. A wiped node comes back with a new node identity, so the cluster sees it as a new node, and the old identity still holds its role in the layout. The release's post-deploy swaps the new identity into the old one's place with `garage layout assign --replace`, and Garage then copies the node's partitions back from its peers. A node in a cluster with a replication factor of 1 has no peers to copy from, so its objects are lost.
 
 ## Upgrading Garage
 
@@ -171,7 +193,7 @@ To upgrade the Garage binary version:
 genesis deploy my-env
 ```
 
-Use the `upgrade-serial` feature during upgrades of production clusters to minimize blast radius.
+The default update block already rolls one node at a time with one canary, so the other nodes keep serving while each one restarts. The `upgrade-serial` feature sets the same thing explicitly. We avoid `upgrade-all-at-once` on a production cluster, because it restarts every node together.
 
 ## Vault Path Reference
 
@@ -226,7 +248,9 @@ IaaS overlays (`azure`, `stackit`) are applied automatically by the blueprint ho
 | `garage_route_prefix` | `s3-api` | Route hostname prefix (suffix is always the CF system domain from exodus) |
 | `availability_zones` | `[z1, z2, z3]` | BOSH AZs |
 | `garage_layout_manual` | `false` | Skip auto cluster layout bootstrap |
-| `garage_replication_factor` | `1` | Copies of each object, which we set before the first deploy |
+| `garage_replication_factor` | `3` for three or more nodes, otherwise the node count | Copies of each object, which we settle before the first deploy and never change afterwards |
+| `garage_allow_rf1` | `false` | Accepts a replication factor of 1 on more than one node, where losing one disk loses data |
+| `garage_allow_scale_down` | `false` | Accepts a lower instance count, after the departing nodes have left the layout and the resync has finished |
 | `ips` | (from the network's static range) | Static IPs for the Garage nodes. Under `ocfp` they come from the subnet's `garage_ip` reserved IPs |
 | `stemcell_os` | `ubuntu-noble` | Stemcell OS, which the `resolute` feature sets to `ubuntu-resolute` |
 | `stemcell_version` | `latest` | Stemcell version |
