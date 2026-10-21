@@ -113,6 +113,10 @@ is_deeply([shape(features => ['cluster'], params => {instances => 2, garage_allo
 	exodus => {replication_factor => '2', instances => '3'})], [], 'garage_allow_scale_down accepts a scale down');
 like(join(' ', shape(features => ['cluster'], params => {instances => 2, garage_allow_scale_down => 1},
 	exodus => {%three_rf3})), qr/would change from 3 to 2/, 'garage_allow_scale_down does not excuse a change of factor');
+like(join(' ', shape(features => ['cluster'], params => {instances => 1, garage_replication_factor => 1, garage_allow_scale_down => 1},
+	exodus => {replication_factor => '1', instances => '3'})), qr/would drop from 3 to 1\..*does not excuse this/, 'a cluster cannot scale down to a single node, even with garage_allow_scale_down');
+is(scalar(shape(features => ['cluster'], params => {instances => 1, garage_replication_factor => 1},
+	exodus => {replication_factor => '1', instances => '3'})), 1, 'scaling a cluster to one node reports only the single-node refusal');
 
 # }}}
 # exodus data from an older kit {{{

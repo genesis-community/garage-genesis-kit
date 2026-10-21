@@ -10,7 +10,7 @@ Before deploying, ensure the following are available:
   - `bpm` 1.4.22 on noble stemcells, or 1.4.41 when the `resolute` feature is on. The kit pins an exact version instead of `latest`, because bpm 1.4.31 cannot start jobs on noble.
   - `routing` 0.343.0 (required when using the `route-registrar` feature)
   - `bosh-dns-aliases` 0.0.4 (required when using `route-registrar` or `cluster`)
-  - `garage` 0.2.0+dev.1, which carries Garage v2.3.0. This is a dev release with no URL, so we upload its tarball before the first deploy with `genesis my-env bosh upload-release <tarball>`. The final release's version, URL, and SHA1 replace this pin once it ships.
+  - `garage` 0.2.0, which carries Garage v2.3.0. Genesis uploads it from its GitHub release URL, so no tarball has to be uploaded by hand.
 - **Stemcell**, either an Ubuntu Noble stemcell or, when the `resolute` feature is on, an Ubuntu Resolute stemcell. We upload it with `bosh upload-stemcell`.
 
 ## New Environment Walkthrough
@@ -100,6 +100,8 @@ The check hook refuses a deploy that lowers the instance count. BOSH deletes a d
 3. Wait for the resync to finish. `garage status` should show the remaining nodes holding every partition, and the resync queue in `garage stats` should be empty.
 4. Lower `params.instances`, set `params.garage_allow_scale_down: true`, and deploy.
 5. Remove `params.garage_allow_scale_down` again, so that the next accidental drop is caught.
+
+A cluster can't scale down to a single instance, and the check hook refuses that even with `params.garage_allow_scale_down`. One instance runs Garage in single-node mode, and that mode won't start on a layout that has moved past its first version, which every cluster's layout has. To run on one node, we build a new single-node deployment and copy the data across.
 
 The remaining nodes must still number at least `garage_replication_factor`, or the check hook refuses the deploy for that reason instead.
 

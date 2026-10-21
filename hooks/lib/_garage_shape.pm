@@ -165,7 +165,16 @@ sub _garage_shape_errors {
 				$previous->{rf}, $rf, $previous->{rf});
 	}
 
-	if (defined($previous->{instances}) && $instances < $previous->{instances}
+	if (defined($previous->{instances}) && $previous->{instances} > 1 && $instances == 1) {
+		push @errors, sprintf(
+			"The garage instance count would drop from %d to 1.  A single instance runs Garage in " .
+			"single-node mode, which refuses to start once the stored layout has moved past its " .
+			"first version, as every cluster's layout has, so the last node would not come back.  " .
+			"params.garage_allow_scale_down does not excuse this.  Keep at least two instances, or " .
+			"build a new single-node deployment and copy the data across.",
+			$previous->{instances}
+		);
+	} elsif (defined($previous->{instances}) && $instances < $previous->{instances}
 		&& !_garage_truthy($shape{allow_scale_down})) {
 		push @errors, sprintf(
 			"The garage instance count would drop from %d to %d.  BOSH deletes the departing nodes " .
