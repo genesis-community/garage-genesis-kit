@@ -1,0 +1,15 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+  - upgrade-all-at-once
+
+genesis:
+  env:      scale-down-parallel-degraded
+  entomb:   false
+
+params:
+  instances: 2
+  garage_consistency_mode: degraded

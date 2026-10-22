@@ -1,6 +1,6 @@
 ---
 releases:
 - name:    garage
-  version: 0.2.1
-  url:     https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.1/garage-0.2.1.tgz
-  sha1:    3419f9ee5b645960823f27010457cf331afc2b33
+  version: 0.2.2
+  url:     https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.2/garage-0.2.2.tgz
+  sha1:    696943015b212800e82d811fe547bbc4d9d76a00

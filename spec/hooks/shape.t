@@ -63,6 +63,7 @@ sub shape {
 		allow_rf1        => scalar($hook->env->lookup('params.garage_allow_rf1', 0)),
 		allow_scale_down => scalar($hook->env->lookup('params.garage_allow_scale_down', 0)),
 		parallel         => $hook->_garage_parallel_update,
+		consistency      => scalar($hook->env->lookup('params.garage_consistency_mode', 'consistent')),
 	);
 }
 
@@ -136,6 +137,26 @@ like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {
 	'garage_allow_scale_down does not excuse a parallel scale-down');
 is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 5}, exodus => {%three_rf3})], [],
 	'a parallel deploy that does not shrink passes');
+like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_drains})),
+	qr/last deploy ran garage release 0\.2\.1, whose drain doesn't wait.*instances still at 3.*garage 0\.2\.2 or later/s,
+	'the parallel refusal names the release and the way forward');
+my %rf2_turns = (%rf2_drains, garage_release => '0.2.2');
+is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_turns})], [],
+	'a parallel scale-down passes once the last deploy ran garage 0.2.2');
+is_deeply([shape(features => ['cluster'], params => {instances => 2, 'update.max_in_flight' => '100%'}, exodus => {%rf2_turns, garage_release => '0.2.2+dev.1'})], [],
+	'a dev build of 0.2.2 takes turns too');
+is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 3}, exodus => {replication_factor => '3', instances => '6', garage_release => '0.3.0'})], [],
+	'a later release scales six nodes down to three in parallel');
+like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2, garage_consistency_mode => 'degraded'}, exodus => {%rf2_turns})),
+	qr/garage_consistency_mode is degraded/, 'a parallel scale-down outside the consistent mode is refused');
+is_deeply([shape(features => ['cluster'], params => {instances => 2, garage_consistency_mode => 'degraded'}, exodus => {%rf2_turns})], [],
+	'a serial scale-down outside the consistent mode passes');
+is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2, garage_consistency_mode => 'consistent'}, exodus => {%rf2_turns})], [],
+	'an explicit consistent mode passes a parallel scale-down');
+ok(StubHook::_garage_release_takes_turns('0.2.2'), '0.2.2 takes turns');
+ok(!StubHook::_garage_release_takes_turns('0.2.1+dev.9'), 'a dev build of 0.2.1 does not take turns');
+ok(!StubHook::_garage_release_takes_turns(undef), 'an unknown release does not take turns');
+ok(StubHook::_garage_release_drains('0.2.2'), '0.2.2 still drains');
 my @below = shape(features => ['cluster'], params => {instances => 2}, exodus => {%three_rf3, garage_release => '0.2.1'});
 is(scalar(@below), 1, 'shrinking below the factor reports one refusal');
 like($below[0], qr/would drop from 3 to 2, but the cluster keeps 3 copies.*cannot shrink below 3 nodes.*rclone sync.*Moving Data to a New Cluster/s,

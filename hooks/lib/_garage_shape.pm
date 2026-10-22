@@ -26,21 +26,32 @@ sub _garage_truthy {
 }
 
 # }}}
-# _garage_release_drains - whether a garage release moves a deleted node's data {{{
-# Release 0.2.1 is the first whose drain takes a node that BOSH deletes out
-# of the layout and waits until its blocks live on the remaining nodes.  A
-# dev build of 0.2.1 counts as 0.2.1.  An unknown version counts as older.
-sub _garage_release_drains {
-	my ($version) = @_;
+# _garage_release_at_least - whether a garage release is a given version or later {{{
+# A dev build counts as the version it builds toward, and an unknown version
+# counts as older.
+sub _garage_release_at_least {
+	my ($version, @need) = @_;
 	return 0 unless defined($version) && $version =~ /^([0-9]+)\.([0-9]+)\.([0-9]+)/;
 	my @have = ($1, $2, $3);
-	my @need = (0, 2, 1);
 	for my $i (0 .. 2) {
 		return 1 if $have[$i] > $need[$i];
 		return 0 if $have[$i] < $need[$i];
 	}
 	return 1;
 }
+
+# }}}
+# _garage_release_drains - whether a garage release moves a deleted node's data {{{
+# Release 0.2.1 is the first whose drain takes a node that BOSH deletes out
+# of the layout and waits until its blocks live on the remaining nodes.
+sub _garage_release_drains { _garage_release_at_least($_[0], 0, 2, 1) }
+
+# }}}
+# _garage_release_takes_turns - whether parallel drains take turns {{{
+# Release 0.2.2 is the first whose drain takes a departure lock, so that
+# departing nodes change the layout one at a time even when BOSH drains
+# several of them at once.
+sub _garage_release_takes_turns { _garage_release_at_least($_[0], 0, 2, 2) }
 
 # }}}
 # _garage_parallel_update - whether the deploy updates instances in parallel {{{
@@ -148,10 +159,10 @@ sub _garage_previous_shape {
 
 # }}}
 # _garage_shape_errors - every reason the shape is unsafe to deploy {{{
-# Takes instances, rf, allow_rf1, allow_scale_down, parallel, and previous
-# (the hash from _garage_previous_shape, or undef for a first deploy), and
-# returns one message per problem.  An empty list means the shape may be
-# deployed.
+# Takes instances, rf, allow_rf1, allow_scale_down, parallel, consistency
+# (params.garage_consistency_mode, consistent when unset), and previous (the
+# hash from _garage_previous_shape, or undef for a first deploy), and returns
+# one message per problem.  An empty list means the shape may be deployed.
 sub _garage_shape_errors {
 	my (%shape) = @_;
 	my ($instances, $rf, $previous) = @shape{qw/instances rf previous/};
@@ -236,15 +247,29 @@ sub _garage_shape_errors {
 
 	return @errors unless $shrinking;
 
-	if (_garage_truthy($shape{parallel})) {
+	my $consistency = defined($shape{consistency}) && $shape{consistency} ne '' ? $shape{consistency} : 'consistent';
+	if (_garage_truthy($shape{parallel}) && !_garage_release_takes_turns($previous->{release})) {
 		push @errors, sprintf(
 			"The garage instance count would drop from %d to %d while the deploy updates instances " .
 			"in parallel, through the upgrade-all-at-once feature or an update block with " .
 			"max_in_flight above 1 or serial: false.  BOSH would delete several departing nodes " .
-			"at once, and the drain on each one applies a layout change of its own, so two of them " .
-			"could apply different layouts under the same version number, which Garage cannot " .
-			"reconcile.  Deploy the scale-down without the feature and with max_in_flight: 1.",
-			$before, $instances
+			"at once, and the last deploy ran %s, whose drain doesn't wait for the other departing " .
+			"nodes, so two of them could apply different layouts under the same version number, " .
+			"which Garage cannot reconcile.  Deploy the scale-down without the feature and with " .
+			"max_in_flight: 1, or deploy this kit once with instances still at %d, so that every " .
+			"node runs garage 0.2.2 or later, whose departing nodes take turns.",
+			$before, $instances,
+			defined($previous->{release}) ? "garage release $previous->{release}" : "a garage release this kit did not record",
+			$before
+		);
+	} elsif (_garage_truthy($shape{parallel}) && $consistency ne 'consistent') {
+		push @errors, sprintf(
+			"The garage instance count would drop from %d to %d while the deploy updates instances " .
+			"in parallel, and params.garage_consistency_mode is %s.  The departing nodes take turns " .
+			"through a lock that Garage reads with a quorum only in the consistent mode, so in this " .
+			"mode two of them could change the layout at once.  Deploy the scale-down without the " .
+			"upgrade-all-at-once feature and with max_in_flight: 1.",
+			$before, $instances, $consistency
 		);
 	} elsif (!_garage_release_drains($previous->{release}) && !_garage_truthy($shape{allow_scale_down})) {
 		push @errors, sprintf(

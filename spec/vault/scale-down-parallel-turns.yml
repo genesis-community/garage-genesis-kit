@@ -1,0 +1,11 @@
+secret/scale/down/parallel/turns/garage/certs/ca:
+    certificate: <!{meta.vault}/certs/ca:certificate!>
+    combined: <!{meta.vault}/certs/ca:combined!>
+    crl: <!{meta.vault}/certs/ca:crl!>
+    key: <!{meta.vault}/certs/ca:key!>
+    serial: <!{meta.vault}/certs/ca:serial!>
+secret/scale/down/parallel/turns/garage/credentials:
+    access_key: <!{meta.vault}/credentials:access_key!>
+    admin_token: <!{meta.vault}/credentials:admin_token!>
+    rpc_secret: <!{meta.vault}/credentials:rpc_secret!>
+    secret_key: <!{meta.vault}/credentials:secret_key!>

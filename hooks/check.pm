@@ -109,7 +109,9 @@ sub check_route_registrar {
 # a node whose factor differs from the one in its stored layout.  From
 # garage release 0.2.1, drain moves the data off a node BOSH deletes, so a
 # scale-down is safe when the last deploy ran that release, the cluster
-# stays at or above its factor, and BOSH deletes one node at a time.  The
+# stays at or above its factor, and BOSH deletes one node at a time.  From
+# release 0.2.2, the departing nodes take turns through a lock, so BOSH may
+# delete several at once while the cluster runs in the consistent mode.  The
 # last deploy's exodus data holds the factor, the instance count, and the
 # garage release it used, so the next deploy is compared against them.  A
 # first deploy has no exodus data and only gets the checks that need none.
@@ -128,6 +130,7 @@ sub check_cluster_shape {
 		allow_rf1        => scalar($self->env->lookup('params.garage_allow_rf1', 0)),
 		allow_scale_down => scalar($self->env->lookup('params.garage_allow_scale_down', 0)),
 		parallel         => $self->_garage_parallel_update,
+		consistency      => scalar($self->env->lookup('params.garage_consistency_mode', 'consistent')),
 	);
 	if (@errors) {
 		info("[[    - >>#R{%s}", $_) for @errors;

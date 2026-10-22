@@ -125,6 +125,19 @@ var _ = Describe("Garage Kit", func() {
 			OutputMatchers: OutputMatchers{GenesisCheck: refused("updates instances in parallel")},
 		})
 		Test(Environment{
+			Name:        "scale-down-parallel-turns",
+			CloudConfig: "aws",
+			CPI:         "aws",
+			Exodus:      "scale-down-parallel-turns",
+		})
+		Test(Environment{
+			Name:           "scale-down-parallel-degraded",
+			CloudConfig:    "aws",
+			CPI:            "aws",
+			Exodus:         "scale-down-parallel-degraded",
+			OutputMatchers: OutputMatchers{GenesisCheck: refused("garage_consistency_mode is degraded")},
+		})
+		Test(Environment{
 			Name:           "scale-below-rf",
 			CloudConfig:    "aws",
 			CPI:            "aws",

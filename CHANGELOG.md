@@ -4,9 +4,9 @@
 
 ### Changed
 
-- Pin garage 0.2.1. When BOSH deletes an instance, its drain removes the node from the layout and waits until the node's data directory holds no blocks, so a scale-down no longer loses the copies on the departing disks. When a single node grows into a cluster, post-deploy also moves the node's role out of the zone `dc1` that single-node mode gave it and into the zone of its AZ, so that the first node keeps a share of the data.
+- Pin garage 0.2.2. When BOSH deletes an instance, its drain removes the node from the layout and waits until the node's data directory holds no blocks, so a scale-down no longer loses the copies on the departing disks. Departing nodes take turns through a lock made of admin API tokens, so a scale-down is safe with any `max_in_flight`, including the `--max-in-flight` option of `genesis deploy`, which the check hook can't see. When a single node grows into a cluster, post-deploy also moves the node's role out of the zone `dc1` that single-node mode gave it and into the zone of its AZ, so that the first node keeps a share of the data.
 - The check hook allows a lower instance count once the last deploy ran garage 0.2.1 or later. It still refuses one when the last deploy ran an older release or exodus does not record the release, and it explains how to upgrade first at the same instance count.
-- The check hook refuses a lower instance count while the deploy updates instances in parallel, through the `upgrade-all-at-once` feature or an `update` block with `max_in_flight` above 1 or `serial: false`.
+- The check hook refuses a lower instance count while the deploy updates instances in parallel, through the `upgrade-all-at-once` feature or an `update` block with `max_in_flight` above 1 or `serial: false`, when the last deploy ran a garage release older than 0.2.2 or `params.garage_consistency_mode` is not `consistent`. The refusal for an older release explains how to upgrade first at the same instance count.
 - The check hook refuses to shrink a cluster below its replication factor, with a single message that explains how to move the data to a smaller cluster. `params.garage_allow_scale_down` no longer excuses that drop.
 - An environment with a replication factor of 1 can now scale down to a single instance, which keeps running as a one-node cluster with its layout. The kit used to refuse that drop.
 - `params.garage_allow_scale_down` now only matters for a cluster whose last deploy ran a garage release older than 0.2.1, after the departing nodes have left the layout by hand.
@@ -16,7 +16,7 @@
 
 - Export `garage_release` in exodus, the garage release version each deploy ran, so that the check hook knows which drain the next scale-down will run.
 - Add a MANUAL section on moving data to a new cluster with rclone, for a change of replication factor or a cluster that has to shrink below its factor.
-- Add Perl tests and testkit specs for an automatic scale-down, a parallel scale-down, a drop below the factor, a scale-down to one node, and a single node that grows into a cluster with one copy.
+- Add Perl tests and testkit specs for an automatic scale-down, a parallel scale-down, a drop below the factor, a parallel scale-down on a release whose drains take turns, a parallel scale-down in the degraded mode, a scale-down to one node, and a single node that grows into a cluster with one copy.
 
 ## [0.1.0] - Unreleased
 
