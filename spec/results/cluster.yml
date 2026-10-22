@@ -3,9 +3,10 @@ exodus:
   ca: <!{meta.vault}/certs/ca:certificate!>
   cluster: true
   cluster_size: 3
+  consistency_mode: consistent
   domain: garage.bosh
   features: cluster
-  garage_release: 0.2.2
+  garage_release: 0.2.3
   iaas: null
   instances: 3
   ips:
@@ -102,9 +103,9 @@ instance_groups:
 name: cluster-garage
 releases:
 - name: garage
-  sha1: 696943015b212800e82d811fe547bbc4d9d76a00
-  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.2/garage-0.2.2.tgz
-  version: 0.2.2
+  sha1: 60d61ea3d306752bd71d8bd52dd52a5ab8bcea9a
+  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.3/garage-0.2.3.tgz
+  version: 0.2.3
 - name: bpm
   sha1: sha256:51f2eab4b59939db733beb8f7905e461a732cc29d85e54f151f576cd5bf0c414
   url: https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.22

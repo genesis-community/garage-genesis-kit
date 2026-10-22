@@ -27,9 +27,10 @@ exodus:
   bosh: resolute-route-registrar
   ca: <!{meta.vault}/certs/ca:certificate!>
   cluster: false
+  consistency_mode: consistent
   domain: garage.bosh
   features: resolute,route-registrar
-  garage_release: 0.2.2
+  garage_release: 0.2.3
   iaas: null
   instances: 1
   ips:
@@ -141,9 +142,9 @@ instance_groups:
 name: resolute-route-registrar-garage
 releases:
 - name: garage
-  sha1: 696943015b212800e82d811fe547bbc4d9d76a00
-  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.2/garage-0.2.2.tgz
-  version: 0.2.2
+  sha1: 60d61ea3d306752bd71d8bd52dd52a5ab8bcea9a
+  url: https://github.com/cloudfoundry-community/garage-boshrelease/releases/download/v0.2.3/garage-0.2.3.tgz
+  version: 0.2.3
 - name: bpm
   sha1: sha256:7b445508d63d2171d892ba33f836087e1e519b9782f44c5fa5290323616ca8e6
   url: https://bosh.io/d/github.com/cloudfoundry/bpm-release?v=1.4.41
