@@ -1,4 +1,4 @@
-package Genesis::Hook::Info::Garage v0.2.0;
+package Genesis::Hook::Info::Garage v0.2.1;
 
 use v5.20;
 use warnings;
