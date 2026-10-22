@@ -140,12 +140,12 @@ is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {inst
 like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_drains})),
 	qr/last deploy ran garage release 0\.2\.1, whose drain doesn't wait.*instances still at 3.*garage 0\.2\.2 or later/s,
 	'the parallel refusal names the release and the way forward');
-my %rf2_turns = (%rf2_drains, garage_release => '0.2.2');
+my %rf2_turns = (%rf2_drains, garage_release => '0.2.2', consistency_mode => 'consistent');
 is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_turns})], [],
-	'a parallel scale-down passes once the last deploy ran garage 0.2.2');
+	'a parallel scale-down passes once the last deploy ran garage 0.2.2 in the consistent mode');
 is_deeply([shape(features => ['cluster'], params => {instances => 2, 'update.max_in_flight' => '100%'}, exodus => {%rf2_turns, garage_release => '0.2.2+dev.1'})], [],
 	'a dev build of 0.2.2 takes turns too');
-is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 3}, exodus => {replication_factor => '3', instances => '6', garage_release => '0.3.0'})], [],
+is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 3}, exodus => {replication_factor => '3', instances => '6', garage_release => '0.3.0', consistency_mode => 'consistent'})], [],
 	'a later release scales six nodes down to three in parallel');
 like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2, garage_consistency_mode => 'degraded'}, exodus => {%rf2_turns})),
 	qr/garage_consistency_mode is degraded/, 'a parallel scale-down outside the consistent mode is refused');
@@ -153,8 +153,27 @@ is_deeply([shape(features => ['cluster'], params => {instances => 2, garage_cons
 	'a serial scale-down outside the consistent mode passes');
 is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2, garage_consistency_mode => 'consistent'}, exodus => {%rf2_turns})], [],
 	'an explicit consistent mode passes a parallel scale-down');
+my @was_degraded = shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_turns, consistency_mode => 'degraded'});
+is(scalar(@was_degraded), 1, 'a parallel scale-down from the degraded mode reports one refusal');
+like($was_degraded[0], qr/in parallel, but the last deploy ran in the degraded consistency mode.*mode of the last deploy.*instances still\s+at 3/s,
+	'a parallel scale-down is refused when the last deploy ran degraded, although the next mode is consistent');
+like(join(' ', shape(features => ['cluster'], params => {instances => 2, 'update.max_in_flight' => 3}, exodus => {%rf2_turns, consistency_mode => 'dangerous'})),
+	qr/last deploy ran in the dangerous consistency mode/, 'a parallel scale-down from the dangerous mode is refused');
+my %rf2_unrecorded = %rf2_turns;
+delete $rf2_unrecorded{consistency_mode};
+like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_unrecorded})),
+	qr/last deploy did not record its consistency mode, which kits before 0\.2\.1 never did/,
+	'a parallel scale-down is refused when exodus holds no consistency mode');
+like(join(' ', shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 2}, exodus => {%rf2_turns, consistency_mode => ''})),
+	qr/did not record its consistency mode/, 'an empty consistency mode in exodus counts as not recorded');
+is_deeply([shape(features => ['cluster'], params => {instances => 2}, exodus => {%rf2_turns, consistency_mode => 'degraded'})], [],
+	'a serial scale-down from the degraded mode passes');
+is_deeply([shape(features => ['cluster'], params => {instances => 2}, exodus => {%rf2_unrecorded})], [],
+	'a serial scale-down passes when exodus holds no consistency mode');
+is_deeply([shape(features => ['cluster', 'upgrade-all-at-once'], params => {instances => 4, garage_replication_factor => 2}, exodus => {%rf2_unrecorded})], [],
+	'a parallel deploy that does not shrink passes when exodus holds no consistency mode');
 ok(StubHook::_garage_release_takes_turns('0.2.2'), '0.2.2 takes turns');
-ok(!StubHook::_garage_release_takes_turns('0.2.1+dev.9'), 'a dev build of 0.2.1 does not take turns');
+ok(!StubHook::_garage_release_takes_turns('0.2.1+dev.9'), 'a dev build that follows 0.2.1 does not take turns');
 ok(!StubHook::_garage_release_takes_turns(undef), 'an unknown release does not take turns');
 ok(StubHook::_garage_release_drains('0.2.2'), '0.2.2 still drains');
 my @below = shape(features => ['cluster'], params => {instances => 2}, exodus => {%three_rf3, garage_release => '0.2.1'});

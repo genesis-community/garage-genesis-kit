@@ -1,0 +1,14 @@
+---
+kit:
+  name:    dev
+  version: latest
+  features:
+  - cluster
+  - upgrade-all-at-once
+
+genesis:
+  env:      scale-down-parallel-was-degraded
+  entomb:   false
+
+params:
+  instances: 2

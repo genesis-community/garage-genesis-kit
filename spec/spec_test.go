@@ -131,6 +131,20 @@ var _ = Describe("Garage Kit", func() {
 			Exodus:      "scale-down-parallel-turns",
 		})
 		Test(Environment{
+			Name:           "scale-down-parallel-was-degraded",
+			CloudConfig:    "aws",
+			CPI:            "aws",
+			Exodus:         "scale-down-parallel-was-degraded",
+			OutputMatchers: OutputMatchers{GenesisCheck: refused("the last deploy ran in the degraded consistency mode")},
+		})
+		Test(Environment{
+			Name:           "scale-down-parallel-unrecorded",
+			CloudConfig:    "aws",
+			CPI:            "aws",
+			Exodus:         "scale-down-parallel-unrecorded",
+			OutputMatchers: OutputMatchers{GenesisCheck: refused("the last deploy did not record its consistency mode")},
+		})
+		Test(Environment{
 			Name:           "scale-down-parallel-degraded",
 			CloudConfig:    "aws",
 			CPI:            "aws",

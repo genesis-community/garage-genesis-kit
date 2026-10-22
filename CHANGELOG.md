@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1] - 2026-10-22
+
+### Changed
+
+- Pin garage 0.2.3. A drain that waits for the departure lock no longer crashes on its first retry, and a drain that has lost the lock leaves its staged removal in place rather than reverting a layout that the next holder may already be changing. Every lock renewal now reads the token back, a drain refuses when another node's clock differs from its own by more than 30 seconds, and a holder keeps the lock until every node reports the settled layout.
+- The check hook refuses a parallel scale-down when the last deploy ran in a consistency mode other than `consistent`, as well as when the next deploy does. The departing nodes drain before BOSH updates the rest, so their lock runs in the mode of the last deploy. A last deploy that did not record its mode counts as not consistent, so after an upgrade from an older kit, one deploy at the same instance count comes before a parallel scale-down.
+- The MANUAL explains when it is safe to delete a lock token by hand, and it describes the clock check and the short window that the lock, as a lease without a fencing token, still leaves.
+
+### Added
+
+- Export `consistency_mode` in exodus, the consistency mode each deploy ran, so that the check hook knows which mode the next scale-down's drains will run in.
+- Add Perl tests and testkit specs for a parallel scale-down after a deploy in the degraded mode, and after a deploy that did not record its mode.
+
 ## [0.2.0] - 2026-10-22
 
 ### Changed

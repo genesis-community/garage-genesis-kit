@@ -27,7 +27,8 @@ sub _garage_truthy {
 
 # }}}
 # _garage_release_at_least - whether a garage release is a given version or later {{{
-# A dev build counts as the version it builds toward, and an unknown version
+# BOSH names a dev build after the last final release before it, so a dev
+# build counts as the final release it follows, and an unknown version
 # counts as older.
 sub _garage_release_at_least {
 	my ($version, @need) = @_;
@@ -127,7 +128,7 @@ sub _garage_replication_factor {
 # to the old kit's default of 1.  An explicit factor in the environment file
 # is taken as the one that kit deployed, since that kit honoured it too.
 # The garage release version is there only when the last deploy came from
-# kit 0.2.0 or later.
+# kit 0.2.0 or later, and the consistency mode only from kit 0.2.1 or later.
 sub _garage_previous_shape {
 	my ($self, $explicit_rf) = @_;
 	my $exodus = scalar($self->env->exodus_lookup('.', undef));
@@ -154,6 +155,8 @@ sub _garage_previous_shape {
 
 	my $release = $exodus->{garage_release};
 	$previous{release} = $release if defined($release) && !ref($release) && $release ne '';
+	my $consistency = $exodus->{consistency_mode};
+	$previous{consistency} = $consistency if defined($consistency) && !ref($consistency) && $consistency ne '';
 	return \%previous;
 }
 
@@ -163,6 +166,12 @@ sub _garage_previous_shape {
 # (params.garage_consistency_mode, consistent when unset), and previous (the
 # hash from _garage_previous_shape, or undef for a first deploy), and returns
 # one message per problem.  An empty list means the shape may be deployed.
+#
+# The departing nodes of a scale-down drain before BOSH updates the rest, so
+# their departure lock runs in the consistency mode of the last deploy, and
+# the nodes that stay switch to the next mode afterwards.  A parallel
+# scale-down therefore needs both modes to be consistent, and a last deploy
+# that did not record its mode counts as not consistent.
 sub _garage_shape_errors {
 	my (%shape) = @_;
 	my ($instances, $rf, $previous) = @shape{qw/instances rf previous/};
@@ -270,6 +279,21 @@ sub _garage_shape_errors {
 			"mode two of them could change the layout at once.  Deploy the scale-down without the " .
 			"upgrade-all-at-once feature and with max_in_flight: 1.",
 			$before, $instances, $consistency
+		);
+	} elsif (_garage_truthy($shape{parallel}) && ($previous->{consistency} // '') ne 'consistent') {
+		push @errors, sprintf(
+			"The garage instance count would drop from %d to %d while the deploy updates instances " .
+			"in parallel, but %s.  BOSH drains the departing nodes before it updates the others, so " .
+			"their departure lock runs in the mode of the last deploy, and Garage reads the lock " .
+			"with a quorum only in the consistent mode.  Deploy this kit once with instances still " .
+			"at %d and params.garage_consistency_mode at consistent, or unset, and then scale down, " .
+			"or deploy the scale-down without the upgrade-all-at-once feature and with " .
+			"max_in_flight: 1.",
+			$before, $instances,
+			defined($previous->{consistency})
+				? "the last deploy ran in the $previous->{consistency} consistency mode"
+				: "the last deploy did not record its consistency mode, which kits before 0.2.1 never did",
+			$before
 		);
 	} elsif (!_garage_release_drains($previous->{release}) && !_garage_truthy($shape{allow_scale_down})) {
 		push @errors, sprintf(
