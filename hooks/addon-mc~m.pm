@@ -1,4 +1,4 @@
-package Genesis::Hook::Addon::Garage::Mc v0.1.0;
+package Genesis::Hook::Addon::Garage::Mc v0.2.0;
 
 use v5.20;
 use warnings;
