@@ -1,17 +1,28 @@
-# Garage Genesis Kit — Operator Manual
+# Garage Genesis Kit Operator Manual
 
 ## Prerequisites
 
 Before deploying, ensure the following are available:
 
-- **Genesis 3.1.0 or later** — required for the hook API this kit uses.
-- **Vault** — all credentials and certificates are stored in Vault. Genesis manages provisioning automatically via the `certificates:` block in `kit.yml`.
-- **BOSH director**, which needs the following releases. The kit pins every release it uses, and BOSH fetches each release that has a URL during the deploy:
+- **Genesis 3.1.0 or later**
+  The kit requires it for the hook API it uses.
+
+- **Vault**
+  Vault stores all credentials and certificates. Genesis manages provisioning automatically via the `certificates:` block in `kit.yml`.
+
+- **BOSH director**
+  The director needs the following releases. The kit pins every release it uses, and BOSH fetches each release that has a URL during the deploy.
+
   - `bpm` 1.4.22 on noble stemcells, or 1.4.41 when the `resolute` feature is on. The kit pins an exact version instead of `latest`, because bpm 1.4.31 cannot start jobs on noble.
+
   - `routing` 0.343.0 (required when using the `route-registrar` feature)
+
   - `bosh-dns-aliases` 0.0.4 (required when using `route-registrar` or `cluster`)
+
   - `garage` 0.2.2, which carries Garage v2.3.0. Genesis uploads it from its GitHub release URL, so no tarball has to be uploaded by hand.
-- **Stemcell**, either an Ubuntu Noble stemcell or, when the `resolute` feature is on, an Ubuntu Resolute stemcell. We upload it with `bosh upload-stemcell`.
+
+- **Stemcell**
+  Either an Ubuntu Noble stemcell or, when the `resolute` feature is on, an Ubuntu Resolute stemcell. We upload it with `bosh upload-stemcell`.
 
 ## New Environment Walkthrough
 
@@ -52,7 +63,7 @@ The wizard writes `envs/my-env.yml` with these values under `params:`.
 genesis deploy my-env
 ```
 
-Genesis renders the manifest, provisions certificates and credentials in Vault, and submits the deployment to BOSH. The `update` block defaults to serial rolling with one canary. Use the `upgrade-all-at-once` feature for parallel upgrades.
+Genesis renders the manifest, provisions certificates and credentials in Vault, and submits the deployment to BOSH. The `update` block defaults to serial rolling with one canary. We use the `upgrade-all-at-once` feature for parallel upgrades.
 
 ## Smoke Tests
 
@@ -70,7 +81,7 @@ The errand signs its requests with the root key that `genesis add-secrets` gener
 
 ## Scaling Up
 
-To increase the number of nodes, update `params.instances` in your environment file and redeploy:
+To increase the number of nodes, we update `params.instances` in our environment file and redeploy:
 
 ```yaml
 params:
@@ -100,8 +111,11 @@ A single node keeps one copy of each object, so growing it into a cluster with t
 To remove nodes, we lower `params.instances` (or shorten `params.ips`) and deploy, the same way we scale up. BOSH deletes the instances with the highest indexes, and the garage release moves each departing node's data to the rest of the cluster before BOSH deletes its disk. The garage release does this from version 0.2.1. When BOSH is about to delete an instance, the job's drain script runs these steps on it:
 
 1. It waits until the cluster layout is stable and no other change is staged, and it refuses to start when a node with a role is down, or when fewer nodes than the replication factor would remain.
+
 2. It removes its own node from the layout and applies the next layout version.
+
 3. It waits until the layout history settles on that one version and the node's data directory holds no more blocks. Garage does not track how far the block migration has gone, so the empty directory is the only proof that every block has a copy elsewhere.
+
 4. It returns, and BOSH stops the node and deletes it with its disk.
 
 BOSH drains as many departing instances at once as `max_in_flight` allows. From garage 0.2.2, the departing nodes take turns changing the layout through a lock made of admin API tokens, so the lowest node id removes itself first, and the next one follows once the layout without it has settled. Each one that held data took about eleven minutes in our tests, because Garage holds on to a block for ten minutes after its references move before it hands the block to another node. The drain waits up to `garage.drain.delete_wait_secs`, which defaults to an hour. When blocks are still left at that point, the drain fails, BOSH stops the deploy, and the node keeps its disk. We deploy again to keep waiting. We never deploy with `--skip-drain` while a departing node still holds blocks, because that deletes the disk without moving its data.
@@ -135,22 +149,27 @@ Deleting the whole deployment with `bosh delete-deployment` needs no `--force`. 
 Garage cannot change the replication factor of a cluster, and a cluster cannot shrink below its factor. For either change we deploy a second environment with the shape we want, copy every bucket across with an S3 tool, and retire the old environment. We use rclone here, and any S3 client that can copy and compare buckets will do.
 
 1. Create the new environment file with the new instance count and factor, and deploy it. It gets its own credentials, its own default bucket, and its own static IPs.
+
 2. Configure an rclone remote for each environment. The access key id is `GK` followed by `credentials:access_key` in each environment's vault, the secret is `credentials:secret_key`, the provider is `Other`, the region is `garage`, and the endpoint is `http://<first-node-ip>:3900`.
+
 3. Create any other buckets in the new environment, then copy each bucket with `rclone sync old:<bucket> new:<bucket>`.
+
 4. Check each copy with `rclone check old:<bucket> new:<bucket>`, which compares every object's size and hash, and repeat the sync until the check reports no differences.
+
 5. Stop writes to the old environment, run the sync and the check one last time, and point clients at the new environment.
+
 6. Delete the old deployment with `bosh delete-deployment` and remove its secrets from vault.
 
 ## Manual Layout Management
 
-If you need full control over cluster layout — for example, to assign specific zones or capacities — set the following parameter before deploying:
+If we need full control over the cluster layout, for example to assign specific zones or capacities, we set the following parameter before deploying:
 
 ```yaml
 params:
   garage_layout_manual: true
 ```
 
-With this flag set, the post-deploy hook prints a reminder and exits without calling `garage layout assign` or `garage layout apply`. Use the `mc` addon to get credentials, then manage layout directly with the `garage` CLI:
+With this flag set, the post-deploy hook prints a reminder and exits without calling `garage layout assign` or `garage layout apply`. We use the `mc` addon to get credentials, and then we manage the layout directly with the `garage` CLI:
 
 ```bash
 # Via bosh ssh
@@ -213,18 +232,23 @@ Garage uses LMDB for cluster metadata by default. If a node crashes without a cl
 To recover:
 
 1. Stop the affected instance: `bosh -d my-env stop garage/<index>`.
+
 2. SSH in and inspect: `bosh -d my-env ssh garage/<index>`.
+
 3. Remove the LMDB lock file only (not the data): `rm /var/vcap/store/garage/meta/lock.mdb`.
+
 4. Restart: `bosh -d my-env start garage/<index>`.
 
 If the metadata is corrupted beyond recovery, we can remove the metadata directory and let the node rebuild from its peers, which needs a replication factor of 2 or more. A wiped node comes back with a new node identity, so the cluster sees it as a new node, and the old identity still holds its role in the layout. The release's post-deploy swaps the new identity into the old one's place with `garage layout assign --replace`, and Garage then copies the node's partitions back from its peers. A node in a cluster with a replication factor of 1 has no peers to copy from, so its objects are lost.
 
 ## Upgrading Garage
 
-To upgrade the Garage binary version:
+To upgrade the Garage binary version, we take these steps.
 
 1. Update the `garage` release pin in `manifests/releases/garage.yml` with the new version, URL, and SHA256.
+
 2. Update `config/blobs.yml` in the `garage-boshrelease` repo and rebuild the final release.
+
 3. Redeploy:
 
 ```bash
@@ -257,7 +281,7 @@ kit:
 
 The blueprint refuses two settings that would leave the stemcell and bpm out of step. It refuses the `resolute` feature together with a `stemcell_os` other than `ubuntu-resolute`, and it refuses `stemcell_os: ubuntu-resolute` without the feature. In both cases we remove the `stemcell_os` parameter and let the feature choose.
 
-The director needs a Resolute stemcell before the deploy. Set `params.stemcell_version` to pin one, or leave it unset to take the latest that the director has.
+The director needs a Resolute stemcell before the deploy. We set `params.stemcell_version` to pin one, or we leave it unset to take the latest that the director has.
 
 ## Feature Reference
 
