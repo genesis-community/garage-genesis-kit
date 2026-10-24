@@ -110,7 +110,7 @@
 
 - The static IP fragment merges after every feature fragment. Before this, `cluster` replaced `params.ips` with the cloud config's static range, and under `ocfp` it appended a second network to the garage instance group.
 
-- The `check.pm` check looks at the cloud config through the Genesis `has_entry` API. It used to call a method that does not exist and exited 255.
+- The `check.pm` hook checks the cloud config through the Genesis `has_entry` API. It used to call a method that does not exist and exited 255.
 
 - The `check.pm` stemcell probe handles both the hashref and the `os@version` string forms that `bosh stemcells` returns across Genesis versions. It used to crash on the string form.
 
